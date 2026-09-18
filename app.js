@@ -139,10 +139,14 @@ onAuthStateChanged(auth, (user) => {
   }
 });
 
-function unsubscribeAll(){
+function unsubscribeWeeklyListeners(){
   if (unsubL1) { unsubL1(); unsubL1 = null; }
   if (unsubL2) { unsubL2(); unsubL2 = null; }
   if (unsubL3) { unsubL3(); unsubL3 = null; }
+}
+
+function unsubscribeAll(){
+  unsubscribeWeeklyListeners();
   if (unsubDirectives) { unsubDirectives(); unsubDirectives = null; }
 }
 
@@ -209,7 +213,7 @@ function renderWeekBar(){
    Firestore 구독 — team + week 로 스코프 (다른 주와 완전히 분리됨)
    ===================================================================== */
 function subscribeWeekData(){
-  unsubscribeAll();
+  unsubscribeWeeklyListeners();
   state.l1 = []; state.l2 = []; state.l3 = [];
   state.fetchError = null;
   renderTable();
