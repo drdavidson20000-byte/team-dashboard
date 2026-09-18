@@ -64,7 +64,10 @@
 
     <div id="status-banner" class="empty-hint" hidden></div>
 
-    <button class="add-l1-btn" id="add-l1-btn">+ 프로젝트 추가</button>
+    <div class="toolbar-row">
+      <button class="add-l1-btn" id="add-l1-btn">+ 프로젝트 추가</button>
+      <button class="export-btn" id="export-excel-btn">⇩ 엑셀로 내보내기</button>
+    </div>
 
     <div class="table-wrap" id="table-wrap">
       <table class="report-table">
@@ -81,6 +84,7 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>
