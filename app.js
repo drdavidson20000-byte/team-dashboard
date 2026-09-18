@@ -432,6 +432,7 @@ async function exportToExcel(){
    필터링 가능한 값일 뿐, 주간보고처럼 팀별 탭으로 나뉘지 않습니다).
    ===================================================================== */
 const DIRECTIVE_STATUS_LABEL = { pending: "진행 전", in_progress: "진행 중", done: "완료" };
+const DIRECTIVE_STATUS_DOT = { pending: "🔴", in_progress: "🟡", done: "🟢" }; // 진행전=빨강, 진행중=노랑, 완료=초록
 const DIRECTIVE_STATUS_ORDER = { in_progress: 0, pending: 1, done: 2 }; // 기본 정렬 시 "진행 중" 우선
 const DIRECTIVE_TEAM_LABEL = { planning: "영업기획팀", management: "영업관리팀" };
 
@@ -491,9 +492,8 @@ function getFilteredSortedDirectives(){
 
   const cmp = (a, b) => {
     if (field === "status") {
-      const av = DIRECTIVE_STATUS_LABEL[a.status] || "";
-      const bv = DIRECTIVE_STATUS_LABEL[b.status] || "";
-      return av.localeCompare(bv, "ko");
+      // 라벨(이모지 포함) 텍스트 비교 대신 진행 흐름 순서(진행 중 → 진행 전 → 완료)로 비교합니다.
+      return (DIRECTIVE_STATUS_ORDER[a.status] ?? 9) - (DIRECTIVE_STATUS_ORDER[b.status] ?? 9);
     }
     if (field === "team") {
       const av = DIRECTIVE_TEAM_LABEL[a.team] || "";
@@ -630,7 +630,7 @@ function renderDirectiveTable(){
     ["pending", "in_progress", "done"].forEach(s => {
       const opt = document.createElement("option");
       opt.value = s;
-      opt.textContent = DIRECTIVE_STATUS_LABEL[s];
+      opt.textContent = `${DIRECTIVE_STATUS_DOT[s]} ${DIRECTIVE_STATUS_LABEL[s]}`;
       if (dv.status === s) opt.selected = true;
       statusSelect.appendChild(opt);
     });
