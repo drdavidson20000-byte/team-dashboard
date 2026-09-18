@@ -439,6 +439,167 @@ header.topbar .right{
   padding:6px 24px;
 }
 
+/* ---------- 지시사항 탭 ---------- */
+.filter-bar{
+  display:flex;
+  align-items:flex-end;
+  flex-wrap:wrap;
+  gap:14px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:12px 14px;
+  margin-bottom:14px;
+}
+.filter-field{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.filter-field label{
+  font-size:11.5px;
+  color:var(--text-dim);
+  font-weight:600;
+}
+.filter-field select, .filter-field input[type=text]{
+  padding:7px 10px;
+  border:1px solid var(--border);
+  border-radius:7px;
+  font-size:13px;
+  min-width:130px;
+}
+.filter-field-search{ flex:1; min-width:180px; }
+.filter-field-search input{ width:100%; min-width:0; }
+.filter-field select:focus, .filter-field input:focus{
+  outline:none;
+  border-color:var(--accent);
+}
+#dir-filter-reset{
+  margin-bottom:1px;
+}
+
+.directive-table th.sortable{
+  cursor:pointer;
+  user-select:none;
+  white-space:nowrap;
+}
+.directive-table th.sortable:hover{ color:var(--accent); }
+.directive-table th .sort-arrow{
+  display:inline-block;
+  margin-left:4px;
+  font-size:10px;
+  color:var(--accent);
+}
+.directive-table td{ vertical-align:middle; }
+.th-directive-content{ min-width:240px; }
+.th-directive-actions{ width:110px; }
+.directive-content-text{
+  white-space:pre-wrap;
+  word-break:break-word;
+  line-height:1.5;
+}
+.directive-team-badge{
+  display:inline-block;
+  font-size:11.5px;
+  font-weight:600;
+  padding:3px 9px;
+  border-radius:20px;
+  white-space:nowrap;
+  background:var(--accent-dim);
+  color:var(--accent);
+}
+.directive-team-badge.management{
+  background:#fef3e7;
+  color:#b6621b;
+}
+.status-select{
+  font-size:12.5px;
+  font-weight:600;
+  padding:5px 8px;
+  border-radius:7px;
+  border:1px solid var(--border);
+  background:var(--bg);
+}
+.status-select.status-pending{ color:var(--text-dim); }
+.status-select.status-in_progress{ color:var(--accent); border-color:var(--accent); background:var(--accent-dim); }
+.status-select.status-done{ color:#0d7a4c; border-color:#0d7a4c; background:#e7f7ef; }
+.directive-due{ white-space:nowrap; }
+.directive-due.overdue{ color:var(--danger); font-weight:700; }
+.directive-actions-cell{
+  display:flex;
+  gap:4px;
+  white-space:nowrap;
+}
+
+/* ---------- 지시사항 추가/편집 모달 ---------- */
+.modal-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(20,22,26,0.45);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+  z-index:100;
+}
+.modal-overlay[hidden]{ display:none; }
+.modal-card{
+  width:100%;
+  max-width:480px;
+  max-height:90vh;
+  overflow-y:auto;
+  background:var(--card);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:24px;
+}
+.modal-card h2{
+  font-size:16px;
+  margin:0 0 16px;
+}
+.modal-row{
+  display:flex;
+  gap:12px;
+}
+.modal-row .modal-field{ flex:1; }
+.modal-field{
+  margin-bottom:14px;
+}
+.modal-field label{
+  display:block;
+  font-size:12.5px;
+  color:var(--text-dim);
+  margin-bottom:5px;
+  font-weight:600;
+}
+.modal-field input, .modal-field select, .modal-field textarea{
+  width:100%;
+  padding:9px 11px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  font-size:13.5px;
+}
+.modal-field textarea{
+  min-height:90px;
+  resize:vertical;
+}
+.modal-field input:focus, .modal-field select:focus, .modal-field textarea:focus{
+  outline:none;
+  border-color:var(--accent);
+}
+.modal-error{
+  color:var(--danger);
+  font-size:12.5px;
+  min-height:16px;
+  margin-bottom:6px;
+}
+.modal-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:6px;
+}
+
 @media (max-width:520px){
   .content-wrap{ padding:16px 12px 60px; }
   header.topbar{ padding:12px 16px; }

@@ -40,47 +40,152 @@
 
   <nav class="main-tabs">
     <div class="main-tab active" data-tab="weekly">주간보고</div>
+    <div class="main-tab" data-tab="directives">지시사항</div>
     <div class="main-tab disabled" title="추후 추가 예정">성과관리</div>
-    <div class="main-tab disabled" title="추후 추가 예정">+ 탭 추가 예정</div>
   </nav>
 
   <div class="content-wrap">
-    <div class="team-tabs">
-      <div class="team-tab active" data-team="planning">영업기획팀</div>
-      <div class="team-tab" data-team="management">영업관리팀</div>
-    </div>
 
-    <div class="week-bar">
-      <button class="nav-arrow" id="week-prev">‹</button>
-      <div>
-        <div class="week-label" id="week-label">2026년 38주차</div>
-        <div class="week-range" id="week-range">9월 14일 ~ 9월 20일</div>
+    <!-- ===================== TAB: 주간보고 ===================== -->
+    <div class="tab-panel" id="tab-panel-weekly">
+      <div class="team-tabs">
+        <div class="team-tab active" data-team="planning">영업기획팀</div>
+        <div class="team-tab" data-team="management">영업관리팀</div>
       </div>
-      <button class="nav-arrow" id="week-next">›</button>
-      <div class="spacer"></div>
-      <button class="import-btn" id="import-week-btn">◀ 지난 주 내용 가져오기</button>
-      <button class="today-btn" id="week-today">이번 주로</button>
+
+      <div class="week-bar">
+        <button class="nav-arrow" id="week-prev">‹</button>
+        <div>
+          <div class="week-label" id="week-label">2026년 38주차</div>
+          <div class="week-range" id="week-range">9월 14일 ~ 9월 20일</div>
+        </div>
+        <button class="nav-arrow" id="week-next">›</button>
+        <div class="spacer"></div>
+        <button class="import-btn" id="import-week-btn">◀ 지난 주 내용 가져오기</button>
+        <button class="today-btn" id="week-today">이번 주로</button>
+      </div>
+
+      <div id="status-banner" class="empty-hint" hidden></div>
+
+      <div class="toolbar-row">
+        <button class="add-l1-btn" id="add-l1-btn">+ 프로젝트 추가</button>
+        <button class="export-btn" id="export-excel-btn">⇩ 엑셀로 내보내기</button>
+      </div>
+
+      <div class="table-wrap" id="table-wrap">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th class="th-l1">분류</th>
+              <th class="th-l2">항목</th>
+              <th>상세설명</th>
+            </tr>
+          </thead>
+          <tbody id="report-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
-    <div id="status-banner" class="empty-hint" hidden></div>
+    <!-- ===================== TAB: 지시사항 ===================== -->
+    <div class="tab-panel" id="tab-panel-directives" hidden>
+      <div class="toolbar-row">
+        <button class="add-l1-btn" id="add-directive-btn">+ 지시사항 추가</button>
+      </div>
 
-    <div class="toolbar-row">
-      <button class="add-l1-btn" id="add-l1-btn">+ 프로젝트 추가</button>
-      <button class="export-btn" id="export-excel-btn">⇩ 엑셀로 내보내기</button>
+      <div class="filter-bar">
+        <div class="filter-field">
+          <label for="dir-filter-team">담당팀</label>
+          <select id="dir-filter-team">
+            <option value="all">전체</option>
+            <option value="planning">영업기획팀</option>
+            <option value="management">영업관리팀</option>
+          </select>
+        </div>
+        <div class="filter-field">
+          <label for="dir-filter-status">진행상태</label>
+          <select id="dir-filter-status">
+            <option value="all">전체</option>
+            <option value="pending">진행 전</option>
+            <option value="in_progress">진행 중</option>
+            <option value="done">완료</option>
+          </select>
+        </div>
+        <div class="filter-field filter-field-search">
+          <label for="dir-filter-q">검색</label>
+          <input id="dir-filter-q" type="text" placeholder="지시사항 내용, 담당자로 검색">
+        </div>
+        <button class="icon-btn" id="dir-filter-reset">필터 초기화</button>
+      </div>
+
+      <div id="directive-status-banner" class="empty-hint" hidden></div>
+
+      <div class="table-wrap" id="directive-table-wrap">
+        <table class="report-table directive-table">
+          <thead>
+            <tr>
+              <th data-sort="instructionDate" class="sortable">지시 날짜</th>
+              <th data-sort="dueDate" class="sortable">이행예정 날짜</th>
+              <th data-sort="content" class="sortable th-directive-content">지시사항</th>
+              <th data-sort="team" class="sortable">담당팀</th>
+              <th data-sort="assignee" class="sortable">담당자</th>
+              <th data-sort="status" class="sortable">진행상태</th>
+              <th class="th-directive-actions">관리</th>
+            </tr>
+          </thead>
+          <tbody id="directive-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
-    <div class="table-wrap" id="table-wrap">
-      <table class="report-table">
-        <thead>
-          <tr>
-            <th class="th-l1">분류</th>
-            <th class="th-l2">항목</th>
-            <th>상세설명</th>
-          </tr>
-        </thead>
-        <tbody id="report-tbody"></tbody>
-      </table>
-    </div>
+  </div>
+</div>
+
+<!-- ===================== 지시사항 추가/편집 모달 ===================== -->
+<div id="directive-modal-overlay" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <h2 id="directive-modal-title">지시사항 추가</h2>
+    <form id="directive-form">
+      <div class="modal-row">
+        <div class="modal-field">
+          <label for="dir-input-instruction-date">지시 날짜</label>
+          <input type="date" id="dir-input-instruction-date" required>
+        </div>
+        <div class="modal-field">
+          <label for="dir-input-due-date">이행예정 날짜</label>
+          <input type="date" id="dir-input-due-date">
+        </div>
+      </div>
+      <div class="modal-field">
+        <label for="dir-input-content">지시사항</label>
+        <textarea id="dir-input-content" placeholder="지시사항 내용을 입력하세요..." required></textarea>
+      </div>
+      <div class="modal-row">
+        <div class="modal-field">
+          <label for="dir-input-team">담당팀</label>
+          <select id="dir-input-team">
+            <option value="planning">영업기획팀</option>
+            <option value="management">영업관리팀</option>
+          </select>
+        </div>
+        <div class="modal-field">
+          <label for="dir-input-assignee">담당자</label>
+          <input type="text" id="dir-input-assignee" placeholder="담당자명">
+        </div>
+      </div>
+      <div class="modal-field">
+        <label for="dir-input-status">진행상태</label>
+        <select id="dir-input-status">
+          <option value="pending">진행 전</option>
+          <option value="in_progress">진행 중</option>
+          <option value="done">완료</option>
+        </select>
+      </div>
+      <div id="directive-form-error" class="modal-error"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-sm cancel" id="directive-modal-cancel">취소</button>
+        <button type="submit" class="btn-sm save">저장</button>
+      </div>
+    </form>
   </div>
 </div>
 

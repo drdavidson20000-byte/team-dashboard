@@ -45,9 +45,19 @@ const state = {
   l3: [],                      // [{id(=l2Id), team, week, l2Id, content, author, updatedAt}] -- 상세설명
   editingKey: null,            // 현재 인라인 편집 중인 l2Id
   fetchError: null,
+
+  // ---- 지시사항 탭 ----
+  activeMainTab: "weekly",     // "weekly" | "directives"
+  directives: [],              // [{id, instructionDate, dueDate, content, team, assignee, status, createdAt}]
+  directivesFetchError: null,
+  directivesFilter: { team: "all", status: "all", q: "" },
+  directivesSort: { field: null, dir: "asc" }, // field=null → 기본(진행중 우선 + 지시날짜 내림차순) 정렬
+  directiveModalMode: null,    // "add" | "edit" | null
+  directiveEditingId: null,
 };
 
 let unsubL1 = null, unsubL2 = null, unsubL3 = null;
+let unsubDirectives = null;
 
 /* =====================================================================
    ISO 주차 유틸
@@ -125,6 +135,7 @@ onAuthStateChanged(auth, (user) => {
     appRoot.style.display = "none";
     unsubscribeAll();
     state.l1 = []; state.l2 = []; state.l3 = [];
+    state.directives = [];
   }
 });
 
@@ -132,6 +143,7 @@ function unsubscribeAll(){
   if (unsubL1) { unsubL1(); unsubL1 = null; }
   if (unsubL2) { unsubL2(); unsubL2 = null; }
   if (unsubL3) { unsubL3(); unsubL3 = null; }
+  if (unsubDirectives) { unsubDirectives(); unsubDirectives = null; }
 }
 
 /* =====================================================================
@@ -162,6 +174,28 @@ function initApp(){
 
   renderWeekBar();
   subscribeWeekData();
+
+  initMainTabs();
+  initDirectivesTab();
+  subscribeDirectives();
+}
+
+/* =====================================================================
+   상단 메인 탭 전환 (주간보고 / 지시사항 / 성과관리(비활성))
+   ===================================================================== */
+function initMainTabs(){
+  document.querySelectorAll(".main-tab").forEach(tab => {
+    if (tab.classList.contains("disabled")) return;
+    tab.addEventListener("click", () => {
+      const target = tab.dataset.tab;
+      if (!target || target === state.activeMainTab) return;
+      state.activeMainTab = target;
+      document.querySelectorAll(".main-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      document.getElementById("tab-panel-weekly").hidden = target !== "weekly";
+      document.getElementById("tab-panel-directives").hidden = target !== "directives";
+    });
+  });
 }
 
 function renderWeekBar(){
@@ -388,6 +422,339 @@ async function exportToExcel(){
   } finally {
     exportBtn.disabled = false;
     exportBtn.textContent = originalLabel;
+  }
+}
+
+/* =====================================================================
+   지시사항 탭
+   -----------------------------------------------------------------------
+   담당팀/주차와 무관하게 하나의 표에서 전체 지시사항을 관리합니다(팀은
+   필터링 가능한 값일 뿐, 주간보고처럼 팀별 탭으로 나뉘지 않습니다).
+   ===================================================================== */
+const DIRECTIVE_STATUS_LABEL = { pending: "진행 전", in_progress: "진행 중", done: "완료" };
+const DIRECTIVE_STATUS_ORDER = { in_progress: 0, pending: 1, done: 2 }; // 기본 정렬 시 "진행 중" 우선
+const DIRECTIVE_TEAM_LABEL = { planning: "영업기획팀", management: "영업관리팀" };
+
+function subscribeDirectives(){
+  const q = query(collection(db, "directives"));
+  unsubDirectives = onSnapshot(q, snap => {
+    state.directives = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.directivesFetchError = null;
+    renderDirectiveTable();
+  }, (err) => {
+    console.error("directives 구독 오류", err);
+    state.directivesFetchError = "Firestore 연결에 실패했습니다. firebase-config.js 값과 firestore.rules 배포 상태를 확인하세요.";
+    renderDirectiveTable();
+  });
+}
+
+async function addDirective(data){
+  await addDoc(collection(db, "directives"), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+async function updateDirective(id, data){
+  await updateDoc(doc(db, "directives", id), { ...data, updatedAt: serverTimestamp() });
+}
+async function deleteDirective(id){
+  await deleteDoc(doc(db, "directives", id));
+}
+
+/* ---- 필터 + 정렬 ---- */
+function getFilteredSortedDirectives(){
+  const { team, status, q } = state.directivesFilter;
+  const needle = q.trim().toLowerCase();
+
+  let arr = state.directives.filter(d => {
+    if (team !== "all" && d.team !== team) return false;
+    if (status !== "all" && d.status !== status) return false;
+    if (needle) {
+      const hay = `${d.content || ""} ${d.assignee || ""}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
+
+  const { field, dir } = state.directivesSort;
+
+  if (!field) {
+    // 기본 정렬: "진행 중" 항목을 맨 위로, 그 안에서는 지시 날짜 내림차순(최근 지시 먼저)
+    arr = arr.slice().sort((a, b) => {
+      const sp = (DIRECTIVE_STATUS_ORDER[a.status] ?? 9) - (DIRECTIVE_STATUS_ORDER[b.status] ?? 9);
+      if (sp !== 0) return sp;
+      return (b.instructionDate || "").localeCompare(a.instructionDate || "");
+    });
+    return arr;
+  }
+
+  const cmp = (a, b) => {
+    if (field === "status") {
+      const av = DIRECTIVE_STATUS_LABEL[a.status] || "";
+      const bv = DIRECTIVE_STATUS_LABEL[b.status] || "";
+      return av.localeCompare(bv, "ko");
+    }
+    if (field === "team") {
+      const av = DIRECTIVE_TEAM_LABEL[a.team] || "";
+      const bv = DIRECTIVE_TEAM_LABEL[b.team] || "";
+      return av.localeCompare(bv, "ko");
+    }
+    if (field === "instructionDate" || field === "dueDate") {
+      return (a[field] || "").localeCompare(b[field] || "");
+    }
+    return String(a[field] || "").localeCompare(String(b[field] || ""), "ko");
+  };
+
+  arr = arr.slice().sort(cmp);
+  if (dir === "desc") arr.reverse();
+  return arr;
+}
+
+/* ---- 초기화(탭 상호작용 연결) ---- */
+function initDirectivesTab(){
+  document.getElementById("add-directive-btn").addEventListener("click", () => openDirectiveModal("add"));
+
+  document.getElementById("dir-filter-team").addEventListener("change", (e) => {
+    state.directivesFilter.team = e.target.value;
+    renderDirectiveTable();
+  });
+  document.getElementById("dir-filter-status").addEventListener("change", (e) => {
+    state.directivesFilter.status = e.target.value;
+    renderDirectiveTable();
+  });
+  document.getElementById("dir-filter-q").addEventListener("input", (e) => {
+    state.directivesFilter.q = e.target.value;
+    renderDirectiveTable();
+  });
+  document.getElementById("dir-filter-reset").addEventListener("click", () => {
+    state.directivesFilter = { team: "all", status: "all", q: "" };
+    document.getElementById("dir-filter-team").value = "all";
+    document.getElementById("dir-filter-status").value = "all";
+    document.getElementById("dir-filter-q").value = "";
+    renderDirectiveTable();
+  });
+
+  document.querySelectorAll(".directive-table th.sortable").forEach(th => {
+    th.addEventListener("click", () => {
+      const field = th.dataset.sort;
+      if (state.directivesSort.field === field) {
+        state.directivesSort.dir = state.directivesSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        state.directivesSort.field = field;
+        state.directivesSort.dir = "asc";
+      }
+      renderDirectiveTable();
+    });
+  });
+
+  document.getElementById("directive-modal-cancel").addEventListener("click", closeDirectiveModal);
+  document.getElementById("directive-modal-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "directive-modal-overlay") closeDirectiveModal();
+  });
+  document.getElementById("directive-form").addEventListener("submit", onDirectiveFormSubmit);
+}
+
+/* ---- 렌더링 ---- */
+const directiveStatusBanner = document.getElementById("directive-status-banner");
+const directiveTableWrap = document.getElementById("directive-table-wrap");
+const directiveTbody = document.getElementById("directive-tbody");
+
+function renderDirectiveTable(){
+  updateSortArrows();
+
+  if (state.directivesFetchError) {
+    directiveStatusBanner.textContent = state.directivesFetchError;
+    directiveStatusBanner.hidden = false;
+    directiveTableWrap.hidden = true;
+    return;
+  }
+  directiveStatusBanner.hidden = true;
+  directiveTableWrap.hidden = false;
+
+  const rows = getFilteredSortedDirectives();
+  directiveTbody.innerHTML = "";
+
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 7;
+    const hasAny = state.directives.length > 0;
+    const div = document.createElement("div");
+    div.className = "empty-hint";
+    div.textContent = hasAny
+      ? "필터 조건에 맞는 지시사항이 없습니다."
+      : "등록된 지시사항이 없습니다. 위 '+ 지시사항 추가'로 새로 만드세요.";
+    td.appendChild(div);
+    tr.appendChild(td);
+    directiveTbody.appendChild(tr);
+    return;
+  }
+
+  const todayStr = currentDateStr();
+
+  rows.forEach(dv => {
+    const tr = document.createElement("tr");
+
+    const tdInst = document.createElement("td");
+    tdInst.textContent = dv.instructionDate || "-";
+    tr.appendChild(tdInst);
+
+    const tdDue = document.createElement("td");
+    tdDue.className = "directive-due";
+    tdDue.textContent = dv.dueDate || "-";
+    if (dv.dueDate && dv.status !== "done" && dv.dueDate < todayStr) tdDue.classList.add("overdue");
+    tr.appendChild(tdDue);
+
+    const tdContent = document.createElement("td");
+    const contentDiv = document.createElement("div");
+    contentDiv.className = "directive-content-text";
+    contentDiv.textContent = dv.content || "";
+    tdContent.appendChild(contentDiv);
+    tr.appendChild(tdContent);
+
+    const tdTeam = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = "directive-team-badge" + (dv.team === "management" ? " management" : "");
+    badge.textContent = DIRECTIVE_TEAM_LABEL[dv.team] || dv.team || "-";
+    tdTeam.appendChild(badge);
+    tr.appendChild(tdTeam);
+
+    const tdAssignee = document.createElement("td");
+    tdAssignee.textContent = dv.assignee || "-";
+    tr.appendChild(tdAssignee);
+
+    const tdStatus = document.createElement("td");
+    const statusSelect = document.createElement("select");
+    statusSelect.className = "status-select status-" + (dv.status || "pending");
+    ["pending", "in_progress", "done"].forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = DIRECTIVE_STATUS_LABEL[s];
+      if (dv.status === s) opt.selected = true;
+      statusSelect.appendChild(opt);
+    });
+    statusSelect.addEventListener("change", async (e) => {
+      const newStatus = e.target.value;
+      statusSelect.disabled = true;
+      try {
+        await updateDirective(dv.id, { status: newStatus });
+      } finally {
+        statusSelect.disabled = false;
+      }
+    });
+    tdStatus.appendChild(statusSelect);
+    tr.appendChild(tdStatus);
+
+    const tdActions = document.createElement("td");
+    tdActions.className = "directive-actions-cell";
+    const editBtn = document.createElement("button");
+    editBtn.className = "icon-btn";
+    editBtn.textContent = "편집";
+    editBtn.addEventListener("click", () => openDirectiveModal("edit", dv));
+    const delBtn = document.createElement("button");
+    delBtn.className = "icon-btn danger";
+    delBtn.textContent = "삭제";
+    delBtn.addEventListener("click", () => {
+      if (confirm("이 지시사항을 삭제할까요?")) deleteDirective(dv.id);
+    });
+    tdActions.appendChild(editBtn);
+    tdActions.appendChild(delBtn);
+    tr.appendChild(tdActions);
+
+    directiveTbody.appendChild(tr);
+  });
+}
+
+function updateSortArrows(){
+  document.querySelectorAll(".directive-table th.sortable").forEach(th => {
+    const existing = th.querySelector(".sort-arrow");
+    if (existing) existing.remove();
+    if (state.directivesSort.field === th.dataset.sort) {
+      const arrow = document.createElement("span");
+      arrow.className = "sort-arrow";
+      arrow.textContent = state.directivesSort.dir === "asc" ? "▲" : "▼";
+      th.appendChild(arrow);
+    }
+  });
+}
+
+function currentDateStr(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+/* ---- 추가/편집 모달 ---- */
+function openDirectiveModal(mode, dv){
+  state.directiveModalMode = mode;
+  state.directiveEditingId = mode === "edit" && dv ? dv.id : null;
+
+  document.getElementById("directive-modal-title").textContent = mode === "edit" ? "지시사항 편집" : "지시사항 추가";
+  document.getElementById("directive-form-error").textContent = "";
+
+  const instDateEl = document.getElementById("dir-input-instruction-date");
+  const dueDateEl = document.getElementById("dir-input-due-date");
+  const contentEl = document.getElementById("dir-input-content");
+  const teamEl = document.getElementById("dir-input-team");
+  const assigneeEl = document.getElementById("dir-input-assignee");
+  const statusEl = document.getElementById("dir-input-status");
+
+  if (mode === "edit" && dv) {
+    instDateEl.value = dv.instructionDate || "";
+    dueDateEl.value = dv.dueDate || "";
+    contentEl.value = dv.content || "";
+    teamEl.value = dv.team || "planning";
+    assigneeEl.value = dv.assignee || "";
+    statusEl.value = dv.status || "pending";
+  } else {
+    instDateEl.value = currentDateStr();
+    dueDateEl.value = "";
+    contentEl.value = "";
+    teamEl.value = "planning";
+    assigneeEl.value = "";
+    statusEl.value = "pending";
+  }
+
+  document.getElementById("directive-modal-overlay").hidden = false;
+  contentEl.focus();
+}
+
+function closeDirectiveModal(){
+  document.getElementById("directive-modal-overlay").hidden = true;
+  state.directiveModalMode = null;
+  state.directiveEditingId = null;
+}
+
+async function onDirectiveFormSubmit(e){
+  e.preventDefault();
+  const errorEl = document.getElementById("directive-form-error");
+  errorEl.textContent = "";
+
+  const instructionDate = document.getElementById("dir-input-instruction-date").value;
+  const dueDate = document.getElementById("dir-input-due-date").value;
+  const content = document.getElementById("dir-input-content").value.trim();
+  const team = document.getElementById("dir-input-team").value;
+  const assignee = document.getElementById("dir-input-assignee").value.trim();
+  const status = document.getElementById("dir-input-status").value;
+
+  if (!instructionDate) { errorEl.textContent = "지시 날짜를 입력하세요."; return; }
+  if (!content) { errorEl.textContent = "지시사항 내용을 입력하세요."; return; }
+
+  const saveBtn = document.querySelector('#directive-form button[type="submit"]');
+  saveBtn.disabled = true;
+  try {
+    const data = { instructionDate, dueDate: dueDate || "", content, team, assignee, status };
+    if (state.directiveModalMode === "edit" && state.directiveEditingId) {
+      await updateDirective(state.directiveEditingId, data);
+    } else {
+      await addDirective(data);
+    }
+    closeDirectiveModal();
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = "저장 중 오류가 발생했습니다: " + err.message;
+  } finally {
+    saveBtn.disabled = false;
   }
 }
 
