@@ -4,7 +4,7 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc,
   onSnapshot, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
@@ -23,17 +23,22 @@ function sortByCreatedAt(arr){
   });
 }
 
+/* layer3(상세설명) 문서 id는 "항목(l2) + 주차"로 고정해, 한 항목당 그 주에 하나의
+   상세설명만 존재하도록 합니다(엑셀 표의 한 셀과 동일한 개념). */
+function l3DocId(l2Id, week){
+  return `${l2Id}__${week}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 /* =====================================================================
    상태 (State)
    ===================================================================== */
 const state = {
   team: "planning",           // "planning" | "management"
   weekOffset: 0,               // 0 = 이번 주
-  l1: [],                      // [{id, team, name, createdAt}]
-  l2: [],                      // [{id, team, l1Id, name, createdAt}]
-  l3: [],                      // [{id, team, l2Id, week, content, author, createdAt}]
-  selectedL1: null,
-  selectedL2: null,
+  l1: [],                      // [{id, team, name, createdAt}]  -- 분류(프로젝트)
+  l2: [],                      // [{id, team, l1Id, name, createdAt}] -- 항목
+  l3: [],                      // [{id(=l2Id__week), team, l2Id, week, content, author, updatedAt}] -- 상세설명
+  editingKey: null,            // 현재 인라인 편집 중인 l2Id
   fetchError: null,
 };
 
@@ -133,18 +138,17 @@ function initApp(){
       document.querySelectorAll(".team-tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
       state.team = tab.dataset.team;
-      state.selectedL1 = null;
-      state.selectedL2 = null;
+      state.editingKey = null;
       subscribeTeamData();
     });
   });
 
-  document.getElementById("week-prev").addEventListener("click", () => { state.weekOffset--; renderWeekBar(); renderAll(); });
-  document.getElementById("week-next").addEventListener("click", () => { state.weekOffset++; renderWeekBar(); renderAll(); });
-  document.getElementById("week-today").addEventListener("click", () => { state.weekOffset = 0; renderWeekBar(); renderAll(); });
+  document.getElementById("week-prev").addEventListener("click", () => { state.weekOffset--; state.editingKey = null; renderWeekBar(); renderTable(); });
+  document.getElementById("week-next").addEventListener("click", () => { state.weekOffset++; state.editingKey = null; renderWeekBar(); renderTable(); });
+  document.getElementById("week-today").addEventListener("click", () => { state.weekOffset = 0; state.editingKey = null; renderWeekBar(); renderTable(); });
 
   document.getElementById("add-l1-btn").addEventListener("click", () => promptAddL1());
-  document.getElementById("add-l2-btn").addEventListener("click", () => promptAddL2());
+  document.getElementById("import-week-btn").addEventListener("click", () => importPreviousWeekBulk());
 
   renderWeekBar();
   subscribeTeamData();
@@ -165,10 +169,9 @@ function subscribeTeamData(){
   if (unsubL2) unsubL2();
   if (unsubL3) unsubL3();
   state.l1 = []; state.l2 = []; state.l3 = [];
-  state.selectedL1 = null;
-  state.selectedL2 = null;
+  state.editingKey = null;
   state.fetchError = null;
-  renderAll();
+  renderTable();
 
   const team = state.team;
   const onErr = (label) => (err) => {
@@ -176,25 +179,25 @@ function subscribeTeamData(){
     state.fetchError = "Firestore 연결에 실패했습니다. firebase-config.js 값과 firestore.rules 배포 상태를 확인하세요.";
     const statusEl = document.getElementById("sync-status");
     if (statusEl) statusEl.textContent = "⚠ 연결 오류";
-    renderAll();
+    renderTable();
   };
 
   const q1 = query(collection(db, "layer1"), where("team", "==", team));
   unsubL1 = onSnapshot(q1, snap => {
     state.l1 = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    renderAll();
+    renderTable();
   }, onErr("layer1"));
 
   const q2 = query(collection(db, "layer2"), where("team", "==", team));
   unsubL2 = onSnapshot(q2, snap => {
     state.l2 = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    renderAll();
+    renderTable();
   }, onErr("layer2"));
 
   const q3 = query(collection(db, "layer3"), where("team", "==", team));
   unsubL3 = onSnapshot(q3, snap => {
-    state.l3 = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    renderAll();
+    state.l3 = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderTable();
   }, onErr("layer3"));
 }
 
@@ -215,44 +218,112 @@ async function addL2(l1Id, name){
 }
 async function renameL2(id, name){ await updateDoc(doc(db, "layer2", id), { name }); }
 async function deleteL2(id){
-  const children = state.l3.filter(x => x.l2Id === id);
-  for (const c of children) await deleteDoc(doc(db, "layer3", c.id));
+  const relatedEntries = state.l3.filter(x => x.l2Id === id);
+  for (const e of relatedEntries) await deleteDoc(doc(db, "layer3", e.id));
   await deleteDoc(doc(db, "layer2", id));
 }
-async function addL3(l2Id, content, author){
-  await addDoc(collection(db, "layer3"), {
-    team: state.team, l2Id, week: currentWeekKey(),
-    content, author: author || "", createdAt: serverTimestamp()
+/* 상세설명은 "항목 + 주차" 하나당 하나의 문서로 upsert 합니다. */
+async function saveL3(l2Id, week, content, author){
+  const id = l3DocId(l2Id, week);
+  await setDoc(doc(db, "layer3", id), {
+    team: state.team, l2Id, week,
+    content, author: author || "",
+    updatedAt: serverTimestamp()
   });
 }
-async function updateL3(id, content){ await updateDoc(doc(db, "layer3", id), { content }); }
-async function deleteL3(id){ await deleteDoc(doc(db, "layer3", id)); }
+async function clearL3(l2Id, week){
+  const id = l3DocId(l2Id, week);
+  await deleteDoc(doc(db, "layer3", id));
+}
 
-/* 지난 주 상세내용을 이번 주로 복사 (내용이 주마다 크게 바뀌지 않는 경우를 위한 기능) */
-async function importFromPreviousWeek(l2Id){
+/* 지난 주 상세설명을 이번 주 빈 항목에 한번에 채워 넣습니다(이미 작성된 항목은 건드리지 않음). */
+async function importPreviousWeekBulk(){
   const prevKey = weekKeyFromOffset(state.weekOffset - 1);
-  const prevEntries = state.l3.filter(x => x.l2Id === l2Id && x.week === prevKey);
-  if (prevEntries.length === 0) {
-    alert("지난 주에 작성된 상세내용이 없습니다.");
+  const curKey = currentWeekKey();
+
+  const candidates = [];
+  state.l2.forEach(l2 => {
+    const prevEntry = state.l3.find(x => x.id === l3DocId(l2.id, prevKey));
+    const curEntry = state.l3.find(x => x.id === l3DocId(l2.id, curKey));
+    if (prevEntry && prevEntry.content && (!curEntry || !curEntry.content)) {
+      candidates.push({ l2Id: l2.id, content: prevEntry.content, author: prevEntry.author });
+    }
+  });
+
+  if (candidates.length === 0) {
+    alert("가져올 내용이 없습니다. (지난 주에 작성된 내용이 없거나, 이번 주 항목에 이미 내용이 채워져 있습니다.)");
     return;
   }
-  if (!confirm(`지난 주 상세내용 ${prevEntries.length}건을 이번 주로 복사할까요?`)) return;
-  for (const entry of prevEntries) {
-    await addL3(l2Id, entry.content, entry.author);
+  if (!confirm(`빈 항목 ${candidates.length}건에 지난 주 상세설명을 채워 넣을까요? (이미 작성된 항목은 그대로 유지됩니다)`)) return;
+
+  for (const c of candidates) {
+    await saveL3(c.l2Id, curKey, c.content, c.author);
   }
 }
 
 /* =====================================================================
-   렌더링 — 3단 컬럼(프로젝트 / 카테고리 / 상세내용)
+   렌더링 — 단일 표 (분류 / 항목 / 상세설명), 분류는 세로 병합
    ===================================================================== */
-const columnsWrap = document.getElementById("columns-wrap");
 const statusBanner = document.getElementById("status-banner");
-const l1ListEl = document.getElementById("l1-list");
-const l2ListEl = document.getElementById("l2-list");
-const l2AddBtn = document.getElementById("add-l2-btn");
-const l3ListEl = document.getElementById("l3-list");
-const l3TitleEl = document.getElementById("l3-title");
-const importBtn = document.getElementById("import-prev-week-btn");
+const tableWrap = document.getElementById("table-wrap");
+const tbody = document.getElementById("report-tbody");
+
+function renderTable(){
+  if (state.fetchError) {
+    statusBanner.textContent = state.fetchError;
+    statusBanner.hidden = false;
+    tableWrap.hidden = true;
+    return;
+  }
+  statusBanner.hidden = true;
+  tableWrap.hidden = false;
+
+  tbody.innerHTML = "";
+
+  if (state.l1.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3;
+    td.appendChild(emptyHint("등록된 프로젝트(분류)가 없습니다. 위 '+ 프로젝트 추가' 버튼으로 시작하세요."));
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  const weekKey = currentWeekKey();
+
+  state.l1.forEach(l1 => {
+    const children = state.l2.filter(x => x.l1Id === l1.id);
+
+    if (children.length === 0) {
+      const tr = document.createElement("tr");
+      tr.appendChild(buildL1Cell(l1, 1));
+      const td = document.createElement("td");
+      td.colSpan = 2;
+      td.className = "l2-cell empty-l2-cell";
+      const hint = document.createElement("span");
+      hint.className = "muted-text";
+      hint.textContent = "항목이 없습니다.";
+      const addBtn = document.createElement("button");
+      addBtn.className = "inline-add-btn";
+      addBtn.textContent = "+ 항목 추가";
+      addBtn.addEventListener("click", () => promptAddL2(l1.id));
+      td.appendChild(hint);
+      td.appendChild(addBtn);
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+
+    children.forEach((l2, idx) => {
+      const tr = document.createElement("tr");
+      if (idx === 0) tr.appendChild(buildL1Cell(l1, children.length));
+      tr.appendChild(buildL2Cell(l2, l1));
+      tr.appendChild(buildL3Cell(l2, weekKey));
+      tbody.appendChild(tr);
+    });
+  });
+}
 
 function emptyHint(text){
   const div = document.createElement("div");
@@ -261,224 +332,155 @@ function emptyHint(text){
   return div;
 }
 
-function validateSelection(){
-  if (state.selectedL1 && !state.l1.some(x => x.id === state.selectedL1)) {
-    state.selectedL1 = null;
-    state.selectedL2 = null;
-  }
-  if (state.selectedL2 && !state.l2.some(x => x.id === state.selectedL2 && x.l1Id === state.selectedL1)) {
-    state.selectedL2 = null;
-  }
-}
+function buildL1Cell(l1, rowspan){
+  const td = document.createElement("td");
+  td.className = "l1-cell";
+  td.rowSpan = rowspan;
 
-function renderAll(){
-  if (state.fetchError) {
-    statusBanner.textContent = state.fetchError;
-    statusBanner.hidden = false;
-    columnsWrap.hidden = true;
-    return;
-  }
-  statusBanner.hidden = true;
-  columnsWrap.hidden = false;
+  const name = document.createElement("div");
+  name.className = "l1-name";
+  name.textContent = l1.name;
+  td.appendChild(name);
 
-  validateSelection();
-  renderCol1();
-  renderCol2();
-  renderCol3();
-}
-
-function renderCol1(){
-  l1ListEl.innerHTML = "";
-  if (state.l1.length === 0) {
-    l1ListEl.appendChild(emptyHint("등록된 프로젝트가 없습니다. 위 '+ 추가' 버튼으로 시작하세요."));
-    return;
-  }
-  state.l1.forEach(l1 => {
-    const l2Count = state.l2.filter(x => x.l1Id === l1.id).length;
-    const row = document.createElement("div");
-    row.className = "col-row" + (state.selectedL1 === l1.id ? " active" : "");
-    row.innerHTML = `
-      <span class="row-name"></span>
-      <span class="row-sub">${l2Count}</span>
-      <span class="row-actions">
-        <button class="icon-btn" data-act="edit">편집</button>
-        <button class="icon-btn danger" data-act="del">삭제</button>
-      </span>
-    `;
-    row.querySelector(".row-name").textContent = l1.name;
-    row.addEventListener("click", (e) => {
-      if (e.target.dataset.act) return;
-      state.selectedL1 = l1.id;
-      state.selectedL2 = null;
-      renderAll();
-    });
-    row.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
-      e.stopPropagation();
-      const next = prompt("프로젝트명 수정", l1.name);
-      if (next && next.trim()) renameL1(l1.id, next.trim());
-    });
-    row.querySelector('[data-act="del"]').addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (confirm(`"${l1.name}" 프로젝트와 하위 카테고리/내용을 모두 삭제할까요?`)) deleteL1(l1.id);
-    });
-    l1ListEl.appendChild(row);
-  });
-}
-
-function renderCol2(){
-  l2ListEl.innerHTML = "";
-
-  if (!state.selectedL1) {
-    l2AddBtn.disabled = true;
-    l2ListEl.appendChild(emptyHint("왼쪽에서 프로젝트를 선택하세요."));
-    return;
-  }
-  l2AddBtn.disabled = false;
-
-  const children = state.l2.filter(x => x.l1Id === state.selectedL1);
-  if (children.length === 0) {
-    l2ListEl.appendChild(emptyHint("카테고리가 없습니다. 위 '+ 추가' 버튼으로 만들어보세요."));
-    return;
-  }
-
-  const weekKey = currentWeekKey();
-  children.forEach(l2 => {
-    const entryCount = state.l3.filter(x => x.l2Id === l2.id && x.week === weekKey).length;
-    const row = document.createElement("div");
-    row.className = "col-row" + (state.selectedL2 === l2.id ? " active" : "");
-    row.innerHTML = `
-      <span class="row-name"></span>
-      <span class="row-sub">${entryCount}</span>
-      <span class="row-actions">
-        <button class="icon-btn" data-act="edit">편집</button>
-        <button class="icon-btn danger" data-act="del">삭제</button>
-      </span>
-    `;
-    row.querySelector(".row-name").textContent = l2.name;
-    row.addEventListener("click", (e) => {
-      if (e.target.dataset.act) return;
-      state.selectedL2 = l2.id;
-      renderAll();
-    });
-    row.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
-      e.stopPropagation();
-      const next = prompt("카테고리명 수정", l2.name);
-      if (next && next.trim()) renameL2(l2.id, next.trim());
-    });
-    row.querySelector('[data-act="del"]').addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (confirm(`"${l2.name}" 카테고리와 모든 주차의 상세내용을 삭제할까요?`)) deleteL2(l2.id);
-    });
-    l2ListEl.appendChild(row);
-  });
-}
-
-function renderCol3(){
-  l3ListEl.innerHTML = "";
-
-  if (!state.selectedL2) {
-    l3TitleEl.textContent = "상세내용";
-    importBtn.hidden = true;
-    l3ListEl.appendChild(emptyHint("카테고리를 선택하세요."));
-    return;
-  }
-
-  const l1 = state.l1.find(x => x.id === state.selectedL1);
-  const l2 = state.l2.find(x => x.id === state.selectedL2);
-  l3TitleEl.textContent = `${l1 ? l1.name : ""} › ${l2 ? l2.name : ""}`;
-
-  importBtn.hidden = false;
-  importBtn.onclick = () => importFromPreviousWeek(state.selectedL2);
-
-  const weekKey = currentWeekKey();
-  const entries = state.l3.filter(x => x.l2Id === state.selectedL2 && x.week === weekKey);
-
-  if (entries.length === 0) {
-    l3ListEl.appendChild(emptyHint("이번 주 작성된 상세내용이 없습니다. 아래 버튼으로 추가하거나, 위 '지난 주 내용 가져오기'로 시작하세요."));
-  }
-  entries.forEach(entry => l3ListEl.appendChild(renderEntryCard(entry)));
-
-  const addBtn = document.createElement("button");
-  addBtn.className = "add-entry-btn";
-  addBtn.textContent = "+ 상세내용 추가";
-  addBtn.addEventListener("click", () => showAddEntryForm(l3ListEl, addBtn, state.selectedL2));
-  l3ListEl.appendChild(addBtn);
-}
-
-function renderEntryCard(entry){
-  const card = document.createElement("div");
-  card.className = "entry-card";
-
-  const text = document.createElement("div");
-  text.className = "entry-text";
-  text.textContent = entry.content;
-  card.appendChild(text);
-
-  const meta = document.createElement("div");
-  meta.className = "entry-meta";
-  const when = entry.createdAt && entry.createdAt.toDate ? entry.createdAt.toDate() : null;
-  const whenStr = when ? `${when.getMonth()+1}/${when.getDate()} ${String(when.getHours()).padStart(2,"0")}:${String(when.getMinutes()).padStart(2,"0")}` : "";
-  meta.innerHTML = `
-    <span>${entry.author ? escapeHtml(entry.author) : "작성자 미상"}</span>
-    <span>${whenStr}</span>
-    <span class="spacer"></span>
+  const actions = document.createElement("div");
+  actions.className = "l1-actions";
+  actions.innerHTML = `
+    <button class="icon-btn" data-act="add">+ 항목</button>
     <button class="icon-btn" data-act="edit">편집</button>
     <button class="icon-btn danger" data-act="del">삭제</button>
   `;
-  meta.querySelector('[data-act="edit"]').addEventListener("click", () => {
-    const next = prompt("상세내용 수정", entry.content);
-    if (next !== null && next.trim()) updateL3(entry.id, next.trim());
+  actions.querySelector('[data-act="add"]').addEventListener("click", () => promptAddL2(l1.id));
+  actions.querySelector('[data-act="edit"]').addEventListener("click", () => {
+    const next = prompt("프로젝트명 수정", l1.name);
+    if (next && next.trim()) renameL1(l1.id, next.trim());
   });
-  meta.querySelector('[data-act="del"]').addEventListener("click", () => {
-    if (confirm("이 상세내용을 삭제할까요?")) deleteL3(entry.id);
+  actions.querySelector('[data-act="del"]').addEventListener("click", () => {
+    if (confirm(`"${l1.name}" 프로젝트와 하위 항목/상세설명을 모두 삭제할까요?`)) deleteL1(l1.id);
   });
-  card.appendChild(meta);
-  return card;
+  td.appendChild(actions);
+  return td;
+}
+
+function buildL2Cell(l2){
+  const td = document.createElement("td");
+  td.className = "l2-cell";
+
+  const name = document.createElement("div");
+  name.className = "l2-name";
+  name.textContent = l2.name;
+  td.appendChild(name);
+
+  const actions = document.createElement("div");
+  actions.className = "l2-actions";
+  actions.innerHTML = `
+    <button class="icon-btn" data-act="edit">편집</button>
+    <button class="icon-btn danger" data-act="del">삭제</button>
+  `;
+  actions.querySelector('[data-act="edit"]').addEventListener("click", () => {
+    const next = prompt("항목명 수정", l2.name);
+    if (next && next.trim()) renameL2(l2.id, next.trim());
+  });
+  actions.querySelector('[data-act="del"]').addEventListener("click", () => {
+    if (confirm(`"${l2.name}" 항목과 모든 주차의 상세설명을 삭제할까요?`)) deleteL2(l2.id);
+  });
+  td.appendChild(actions);
+  return td;
+}
+
+function buildL3Cell(l2, weekKey){
+  const td = document.createElement("td");
+  td.className = "l3-cell";
+
+  const entry = state.l3.find(x => x.id === l3DocId(l2.id, weekKey));
+
+  if (state.editingKey === l2.id) {
+    renderL3EditMode(td, l2, weekKey, entry);
+  } else {
+    renderL3ViewMode(td, l2, weekKey, entry);
+  }
+  return td;
+}
+
+function renderL3ViewMode(td, l2, weekKey, entry){
+  if (entry && entry.content) {
+    const text = document.createElement("div");
+    text.className = "detail-text";
+    text.textContent = entry.content;
+    text.addEventListener("click", () => { state.editingKey = l2.id; renderTable(); });
+    td.appendChild(text);
+
+    const meta = document.createElement("div");
+    meta.className = "detail-meta";
+    const when = entry.updatedAt && entry.updatedAt.toDate ? entry.updatedAt.toDate() : null;
+    const whenStr = when ? `${when.getMonth()+1}/${when.getDate()} ${String(when.getHours()).padStart(2,"0")}:${String(when.getMinutes()).padStart(2,"0")}` : "";
+    meta.innerHTML = `
+      <span>${entry.author ? escapeHtml(entry.author) : "작성자 미상"}</span>
+      <span>${whenStr}</span>
+      <span class="spacer"></span>
+      <button class="icon-btn" data-act="edit">편집</button>
+      <button class="icon-btn danger" data-act="del">삭제</button>
+    `;
+    meta.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.editingKey = l2.id;
+      renderTable();
+    });
+    meta.querySelector('[data-act="del"]').addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (confirm("이번 주 상세설명을 삭제할까요?")) await clearL3(l2.id, weekKey);
+    });
+    td.appendChild(meta);
+  } else {
+    const placeholder = document.createElement("div");
+    placeholder.className = "detail-placeholder";
+    placeholder.textContent = "클릭해서 작성";
+    placeholder.addEventListener("click", () => { state.editingKey = l2.id; renderTable(); });
+    td.appendChild(placeholder);
+  }
+}
+
+function renderL3EditMode(td, l2, weekKey, entry){
+  const form = document.createElement("div");
+  form.className = "inline-form l3-edit-form";
+  form.innerHTML = `
+    <input type="text" placeholder="작성자 (선택)" class="author-input">
+    <textarea placeholder="상세설명을 입력하세요..."></textarea>
+    <div class="row">
+      <button class="btn-sm save">저장</button>
+      <button class="btn-sm cancel">취소</button>
+    </div>
+  `;
+  const textarea = form.querySelector("textarea");
+  const authorInput = form.querySelector(".author-input");
+  textarea.value = entry ? (entry.content || "") : "";
+  authorInput.value = entry ? (entry.author || "") : "";
+  td.appendChild(form);
+  textarea.focus();
+
+  form.querySelector(".save").addEventListener("click", async () => {
+    const content = textarea.value.trim();
+    const author = authorInput.value.trim();
+    if (!content) { textarea.focus(); return; }
+    await saveL3(l2.id, weekKey, content, author);
+    state.editingKey = null;
+    renderTable();
+  });
+  form.querySelector(".cancel").addEventListener("click", () => {
+    state.editingKey = null;
+    renderTable();
+  });
 }
 
 function escapeHtml(s){
   return s.replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 }
 
-/* ---- inline forms ---- */
+/* ---- prompts ---- */
 function promptAddL1(){
   const name = prompt("새 프로젝트명 (예: GMCS project)");
   if (name && name.trim()) addL1(name.trim());
 }
-function promptAddL2(){
-  if (!state.selectedL1) return;
-  const name = prompt("새 카테고리명 (예: 기획, 대시보드)");
-  if (name && name.trim()) addL2(state.selectedL1, name.trim());
-}
-function showAddEntryForm(container, addBtn, l2Id){
-  if (container.querySelector(".inline-form")) return;
-  addBtn.style.display = "none";
-
-  const form = document.createElement("div");
-  form.className = "inline-form";
-  form.innerHTML = `
-    <input type="text" placeholder="작성자 (선택)" class="author-input">
-    <textarea placeholder="이번 주 진행 내용을 입력하세요..."></textarea>
-    <div class="row">
-      <button class="btn-sm save">저장</button>
-      <button class="btn-sm cancel">취소</button>
-    </div>
-  `;
-  container.insertBefore(form, addBtn);
-
-  const textarea = form.querySelector("textarea");
-  textarea.focus();
-
-  form.querySelector(".save").addEventListener("click", async () => {
-    const content = textarea.value.trim();
-    const author = form.querySelector(".author-input").value.trim();
-    if (!content) { textarea.focus(); return; }
-    await addL3(l2Id, content, author);
-    form.remove();
-    addBtn.style.display = "";
-  });
-  form.querySelector(".cancel").addEventListener("click", () => {
-    form.remove();
-    addBtn.style.display = "";
-  });
+function promptAddL2(l1Id){
+  const name = prompt("새 항목명 (예: 기획, 대시보드)");
+  if (name && name.trim()) addL2(l1Id, name.trim());
 }

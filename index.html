@@ -58,35 +58,25 @@
       </div>
       <button class="nav-arrow" id="week-next">›</button>
       <div class="spacer"></div>
+      <button class="import-btn" id="import-week-btn">◀ 지난 주 내용 가져오기</button>
       <button class="today-btn" id="week-today">이번 주로</button>
     </div>
 
     <div id="status-banner" class="empty-hint" hidden></div>
 
-    <div class="columns-wrap" id="columns-wrap">
-      <div class="col col-l1">
-        <div class="col-header">
-          <span class="col-title">프로젝트</span>
-          <button class="col-add-btn" id="add-l1-btn">+ 추가</button>
-        </div>
-        <div class="col-list" id="l1-list"></div>
-      </div>
+    <button class="add-l1-btn" id="add-l1-btn">+ 프로젝트 추가</button>
 
-      <div class="col col-l2">
-        <div class="col-header">
-          <span class="col-title">카테고리</span>
-          <button class="col-add-btn" id="add-l2-btn" disabled>+ 추가</button>
-        </div>
-        <div class="col-list" id="l2-list"></div>
-      </div>
-
-      <div class="col col-l3">
-        <div class="col-header">
-          <span class="col-title" id="l3-title">상세내용</span>
-          <button class="import-btn" id="import-prev-week-btn" hidden>◀ 지난 주 내용 가져오기</button>
-        </div>
-        <div class="col-list" id="l3-list"></div>
-      </div>
+    <div class="table-wrap" id="table-wrap">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th class="th-l1">분류</th>
+            <th class="th-l2">항목</th>
+            <th>상세설명</th>
+          </tr>
+        </thead>
+        <tbody id="report-tbody"></tbody>
+      </table>
     </div>
   </div>
 </div>
