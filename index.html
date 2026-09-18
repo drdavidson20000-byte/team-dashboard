@@ -61,9 +61,33 @@
       <button class="today-btn" id="week-today">이번 주로</button>
     </div>
 
-    <button class="add-l1-btn" id="add-l1-btn">+ 프로젝트 추가</button>
+    <div id="status-banner" class="empty-hint" hidden></div>
 
-    <div id="l1-list"></div>
+    <div class="columns-wrap" id="columns-wrap">
+      <div class="col col-l1">
+        <div class="col-header">
+          <span class="col-title">프로젝트</span>
+          <button class="col-add-btn" id="add-l1-btn">+ 추가</button>
+        </div>
+        <div class="col-list" id="l1-list"></div>
+      </div>
+
+      <div class="col col-l2">
+        <div class="col-header">
+          <span class="col-title">카테고리</span>
+          <button class="col-add-btn" id="add-l2-btn" disabled>+ 추가</button>
+        </div>
+        <div class="col-list" id="l2-list"></div>
+      </div>
+
+      <div class="col col-l3">
+        <div class="col-header">
+          <span class="col-title" id="l3-title">상세내용</span>
+          <button class="import-btn" id="import-prev-week-btn" hidden>◀ 지난 주 내용 가져오기</button>
+        </div>
+        <div class="col-list" id="l3-list"></div>
+      </div>
+    </div>
   </div>
 </div>
 

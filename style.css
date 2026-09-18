@@ -212,19 +212,6 @@ header.topbar .right{
   background:var(--accent-dim);
 }
 
-.add-l1-btn{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  font-size:13px;
-  font-weight:600;
-  color:var(--accent);
-  background:var(--accent-dim);
-  padding:8px 14px;
-  border-radius:8px;
-  margin-bottom:14px;
-}
-
 .empty-hint{
   color:var(--text-dim);
   font-size:13px;
@@ -235,101 +222,118 @@ header.topbar .right{
   border-radius:var(--radius);
 }
 
-/* Layer 1 card */
-.l1-card{
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:var(--radius);
-  margin-bottom:12px;
-  box-shadow:var(--shadow);
-  overflow:hidden;
-}
-.l1-head{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:13px 16px;
-  cursor:pointer;
-}
-.l1-head .chevron{
-  color:var(--text-dim);
-  font-size:11px;
-  width:12px;
-  transition:transform .15s;
-}
-.l1-head.open .chevron{ transform:rotate(90deg); }
-.l1-head .l1-name{
-  font-size:14.5px;
-  font-weight:700;
-  flex:1;
-}
-.l1-head .l1-count{
-  font-size:12px;
-  color:var(--text-dim);
-  font-weight:400;
-}
+#status-banner{ margin-bottom:18px; }
+
 .icon-btn{
   font-size:12px;
   color:var(--text-dim);
   padding:4px 8px;
   border-radius:6px;
+  white-space:nowrap;
 }
 .icon-btn:hover{ background:var(--bg); }
 .icon-btn.danger:hover{ background:var(--danger-dim); color:var(--danger); }
 
-.l1-body{
-  border-top:1px solid var(--border);
-  padding:12px 16px 16px 34px;
-  display:none;
+/* ---------- 3단 컬럼 (프로젝트 / 카테고리 / 상세내용) ---------- */
+.columns-wrap{
+  display:flex;
+  align-items:flex-start;
+  gap:14px;
 }
-.l1-body.open{ display:block; }
+.col{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+.col-l1{ flex:0 0 260px; }
+.col-l2{ flex:0 0 220px; }
+.col-l3{ flex:1 1 auto; min-width:320px; }
 
-.add-l2-btn{
-  font-size:12.5px;
+.col-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:12px 14px;
+  border-bottom:1px solid var(--border);
+  background:#fafbfc;
+}
+.col-title{
+  font-size:13.5px;
+  font-weight:700;
+}
+.col-add-btn{
+  font-size:12px;
   font-weight:600;
   color:var(--accent);
-  padding:6px 10px;
-  border-radius:6px;
   background:var(--accent-dim);
-  margin-bottom:10px;
+  padding:5px 10px;
+  border-radius:6px;
+  white-space:nowrap;
 }
+.col-add-btn:disabled{
+  color:#b7bac0;
+  background:var(--bg);
+  cursor:default;
+}
+.import-btn{
+  font-size:12px;
+  font-weight:600;
+  color:var(--accent);
+  background:var(--accent-dim);
+  padding:5px 10px;
+  border-radius:6px;
+  white-space:nowrap;
+}
+.import-btn:hover{ opacity:0.9; }
 
-/* Layer 2 block */
-.l2-block{
-  border:1px solid var(--border);
-  border-radius:8px;
-  margin-bottom:10px;
+.col-list{
+  padding:10px;
+  overflow-y:auto;
 }
-.l2-head{
+.col-l1 .col-list, .col-l2 .col-list{ max-height:560px; }
+.col-l3 .col-list{ max-height:none; }
+
+.col-row{
   display:flex;
   align-items:center;
   gap:8px;
-  padding:10px 12px;
+  padding:9px 10px;
+  border-radius:8px;
   cursor:pointer;
-  background:#fafbfc;
+  margin-bottom:3px;
 }
-.l2-head .chevron{
-  color:var(--text-dim);
-  font-size:10px;
-  width:10px;
-  transition:transform .15s;
+.col-row:hover{ background:var(--bg); }
+.col-row.active{
+  background:var(--accent-dim);
 }
-.l2-head.open .chevron{ transform:rotate(90deg); }
-.l2-head .l2-name{
+.col-row.active .row-name{ color:var(--accent); }
+.row-name{
   font-size:13.5px;
   font-weight:600;
   flex:1;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
-.l2-head .l2-count{
+.row-sub{
   font-size:11.5px;
   color:var(--text-dim);
-  font-weight:400;
+  background:var(--bg);
+  border-radius:999px;
+  padding:1px 7px;
+  flex-shrink:0;
 }
-.l2-body{
-  padding:12px;
-  display:none;
+.col-row.active .row-sub{ background:#fff; }
+.row-actions{
+  display:flex;
+  gap:2px;
+  flex-shrink:0;
 }
-.l2-body.open{ display:block; }
 
 .entry-card{
   background:#fbfbfc;
@@ -418,9 +422,14 @@ header.topbar .right{
   padding:6px 24px;
 }
 
+@media (max-width:820px){
+  .columns-wrap{ flex-direction:column; }
+  .col-l1, .col-l2, .col-l3{ flex:1 1 auto; width:100%; }
+  .col-l1 .col-list, .col-l2 .col-list{ max-height:260px; }
+}
+
 @media (max-width:520px){
   .content-wrap{ padding:16px 12px 60px; }
-  .l1-body{ padding-left:16px; }
   header.topbar{ padding:12px 16px; }
   header.topbar h1{ font-size:14.5px; }
 }

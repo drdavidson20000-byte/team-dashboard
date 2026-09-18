@@ -32,8 +32,8 @@ const state = {
   l1: [],                      // [{id, team, name, createdAt}]
   l2: [],                      // [{id, team, l1Id, name, createdAt}]
   l3: [],                      // [{id, team, l2Id, week, content, author, createdAt}]
-  openL1: new Set(),
-  openL2: new Set(),
+  selectedL1: null,
+  selectedL2: null,
   fetchError: null,
 };
 
@@ -133,17 +133,18 @@ function initApp(){
       document.querySelectorAll(".team-tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
       state.team = tab.dataset.team;
-      state.openL1.clear();
-      state.openL2.clear();
+      state.selectedL1 = null;
+      state.selectedL2 = null;
       subscribeTeamData();
     });
   });
 
-  document.getElementById("week-prev").addEventListener("click", () => { state.weekOffset--; renderWeekBar(); renderTree(); });
-  document.getElementById("week-next").addEventListener("click", () => { state.weekOffset++; renderWeekBar(); renderTree(); });
-  document.getElementById("week-today").addEventListener("click", () => { state.weekOffset = 0; renderWeekBar(); renderTree(); });
+  document.getElementById("week-prev").addEventListener("click", () => { state.weekOffset--; renderWeekBar(); renderAll(); });
+  document.getElementById("week-next").addEventListener("click", () => { state.weekOffset++; renderWeekBar(); renderAll(); });
+  document.getElementById("week-today").addEventListener("click", () => { state.weekOffset = 0; renderWeekBar(); renderAll(); });
 
   document.getElementById("add-l1-btn").addEventListener("click", () => promptAddL1());
+  document.getElementById("add-l2-btn").addEventListener("click", () => promptAddL2());
 
   renderWeekBar();
   subscribeTeamData();
@@ -164,8 +165,10 @@ function subscribeTeamData(){
   if (unsubL2) unsubL2();
   if (unsubL3) unsubL3();
   state.l1 = []; state.l2 = []; state.l3 = [];
+  state.selectedL1 = null;
+  state.selectedL2 = null;
   state.fetchError = null;
-  renderTree();
+  renderAll();
 
   const team = state.team;
   const onErr = (label) => (err) => {
@@ -173,25 +176,25 @@ function subscribeTeamData(){
     state.fetchError = "Firestore 연결에 실패했습니다. firebase-config.js 값과 firestore.rules 배포 상태를 확인하세요.";
     const statusEl = document.getElementById("sync-status");
     if (statusEl) statusEl.textContent = "⚠ 연결 오류";
-    renderTree();
+    renderAll();
   };
 
   const q1 = query(collection(db, "layer1"), where("team", "==", team));
   unsubL1 = onSnapshot(q1, snap => {
     state.l1 = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    renderTree();
+    renderAll();
   }, onErr("layer1"));
 
   const q2 = query(collection(db, "layer2"), where("team", "==", team));
   unsubL2 = onSnapshot(q2, snap => {
     state.l2 = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    renderTree();
+    renderAll();
   }, onErr("layer2"));
 
   const q3 = query(collection(db, "layer3"), where("team", "==", team));
   unsubL3 = onSnapshot(q3, snap => {
     state.l3 = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    renderTree();
+    renderAll();
   }, onErr("layer3"));
 }
 
@@ -225,148 +228,181 @@ async function addL3(l2Id, content, author){
 async function updateL3(id, content){ await updateDoc(doc(db, "layer3", id), { content }); }
 async function deleteL3(id){ await deleteDoc(doc(db, "layer3", id)); }
 
+/* 지난 주 상세내용을 이번 주로 복사 (내용이 주마다 크게 바뀌지 않는 경우를 위한 기능) */
+async function importFromPreviousWeek(l2Id){
+  const prevKey = weekKeyFromOffset(state.weekOffset - 1);
+  const prevEntries = state.l3.filter(x => x.l2Id === l2Id && x.week === prevKey);
+  if (prevEntries.length === 0) {
+    alert("지난 주에 작성된 상세내용이 없습니다.");
+    return;
+  }
+  if (!confirm(`지난 주 상세내용 ${prevEntries.length}건을 이번 주로 복사할까요?`)) return;
+  for (const entry of prevEntries) {
+    await addL3(l2Id, entry.content, entry.author);
+  }
+}
+
 /* =====================================================================
-   렌더링
+   렌더링 — 3단 컬럼(프로젝트 / 카테고리 / 상세내용)
    ===================================================================== */
+const columnsWrap = document.getElementById("columns-wrap");
+const statusBanner = document.getElementById("status-banner");
 const l1ListEl = document.getElementById("l1-list");
+const l2ListEl = document.getElementById("l2-list");
+const l2AddBtn = document.getElementById("add-l2-btn");
+const l3ListEl = document.getElementById("l3-list");
+const l3TitleEl = document.getElementById("l3-title");
+const importBtn = document.getElementById("import-prev-week-btn");
 
-function renderTree(){
-  l1ListEl.innerHTML = "";
+function emptyHint(text){
+  const div = document.createElement("div");
+  div.className = "empty-hint";
+  div.textContent = text;
+  return div;
+}
 
+function validateSelection(){
+  if (state.selectedL1 && !state.l1.some(x => x.id === state.selectedL1)) {
+    state.selectedL1 = null;
+    state.selectedL2 = null;
+  }
+  if (state.selectedL2 && !state.l2.some(x => x.id === state.selectedL2 && x.l1Id === state.selectedL1)) {
+    state.selectedL2 = null;
+  }
+}
+
+function renderAll(){
   if (state.fetchError) {
-    const div = document.createElement("div");
-    div.className = "empty-hint";
-    div.textContent = state.fetchError;
-    l1ListEl.appendChild(div);
+    statusBanner.textContent = state.fetchError;
+    statusBanner.hidden = false;
+    columnsWrap.hidden = true;
     return;
   }
+  statusBanner.hidden = true;
+  columnsWrap.hidden = false;
 
+  validateSelection();
+  renderCol1();
+  renderCol2();
+  renderCol3();
+}
+
+function renderCol1(){
+  l1ListEl.innerHTML = "";
   if (state.l1.length === 0) {
-    const div = document.createElement("div");
-    div.className = "empty-hint";
-    div.textContent = "등록된 프로젝트가 없습니다. 위 '+ 프로젝트 추가' 버튼으로 시작하세요.";
-    l1ListEl.appendChild(div);
+    l1ListEl.appendChild(emptyHint("등록된 프로젝트가 없습니다. 위 '+ 추가' 버튼으로 시작하세요."));
     return;
   }
-
-  const weekKey = currentWeekKey();
-
   state.l1.forEach(l1 => {
-    const l2Children = state.l2.filter(x => x.l1Id === l1.id);
-    const isOpen = state.openL1.has(l1.id);
-
-    const card = document.createElement("div");
-    card.className = "l1-card";
-
-    const head = document.createElement("div");
-    head.className = "l1-head" + (isOpen ? " open" : "");
-    head.innerHTML = `
-      <span class="chevron">▶</span>
-      <span class="l1-name"></span>
-      <span class="l1-count">${l2Children.length}개 카테고리</span>
-      <button class="icon-btn" data-act="edit">편집</button>
-      <button class="icon-btn danger" data-act="del">삭제</button>
+    const l2Count = state.l2.filter(x => x.l1Id === l1.id).length;
+    const row = document.createElement("div");
+    row.className = "col-row" + (state.selectedL1 === l1.id ? " active" : "");
+    row.innerHTML = `
+      <span class="row-name"></span>
+      <span class="row-sub">${l2Count}</span>
+      <span class="row-actions">
+        <button class="icon-btn" data-act="edit">편집</button>
+        <button class="icon-btn danger" data-act="del">삭제</button>
+      </span>
     `;
-    head.querySelector(".l1-name").textContent = l1.name;
-    head.addEventListener("click", (e) => {
+    row.querySelector(".row-name").textContent = l1.name;
+    row.addEventListener("click", (e) => {
       if (e.target.dataset.act) return;
-      if (state.openL1.has(l1.id)) state.openL1.delete(l1.id); else state.openL1.add(l1.id);
-      renderTree();
+      state.selectedL1 = l1.id;
+      state.selectedL2 = null;
+      renderAll();
     });
-    head.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
+    row.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
       e.stopPropagation();
       const next = prompt("프로젝트명 수정", l1.name);
       if (next && next.trim()) renameL1(l1.id, next.trim());
     });
-    head.querySelector('[data-act="del"]').addEventListener("click", (e) => {
+    row.querySelector('[data-act="del"]').addEventListener("click", (e) => {
       e.stopPropagation();
       if (confirm(`"${l1.name}" 프로젝트와 하위 카테고리/내용을 모두 삭제할까요?`)) deleteL1(l1.id);
     });
-    card.appendChild(head);
-
-    const body = document.createElement("div");
-    body.className = "l1-body" + (isOpen ? " open" : "");
-
-    const addL2Btn = document.createElement("button");
-    addL2Btn.className = "add-l2-btn";
-    addL2Btn.textContent = "+ 카테고리 추가";
-    addL2Btn.addEventListener("click", () => promptAddL2(l1.id));
-    body.appendChild(addL2Btn);
-
-    if (l2Children.length === 0) {
-      const hint = document.createElement("div");
-      hint.className = "empty-hint";
-      hint.style.padding = "14px";
-      hint.textContent = "카테고리가 없습니다.";
-      body.appendChild(hint);
-    }
-
-    l2Children.forEach(l2 => {
-      body.appendChild(renderL2Block(l2, weekKey));
-    });
-
-    card.appendChild(body);
-    l1ListEl.appendChild(card);
+    l1ListEl.appendChild(row);
   });
 }
 
-function renderL2Block(l2, weekKey){
-  const entries = state.l3.filter(x => x.l2Id === l2.id && x.week === weekKey);
-  const isOpen = state.openL2.has(l2.id);
+function renderCol2(){
+  l2ListEl.innerHTML = "";
 
-  const block = document.createElement("div");
-  block.className = "l2-block";
+  if (!state.selectedL1) {
+    l2AddBtn.disabled = true;
+    l2ListEl.appendChild(emptyHint("왼쪽에서 프로젝트를 선택하세요."));
+    return;
+  }
+  l2AddBtn.disabled = false;
 
-  const head = document.createElement("div");
-  head.className = "l2-head" + (isOpen ? " open" : "");
-  head.innerHTML = `
-    <span class="chevron">▶</span>
-    <span class="l2-name"></span>
-    <span class="l2-count">${entries.length}건</span>
-    <button class="icon-btn" data-act="edit">편집</button>
-    <button class="icon-btn danger" data-act="del">삭제</button>
-  `;
-  head.querySelector(".l2-name").textContent = l2.name;
-  head.addEventListener("click", (e) => {
-    if (e.target.dataset.act) return;
-    if (state.openL2.has(l2.id)) state.openL2.delete(l2.id); else state.openL2.add(l2.id);
-    renderTree();
-  });
-  head.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
-    e.stopPropagation();
-    const next = prompt("카테고리명 수정", l2.name);
-    if (next && next.trim()) renameL2(l2.id, next.trim());
-  });
-  head.querySelector('[data-act="del"]').addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (confirm(`"${l2.name}" 카테고리와 모든 주차의 상세내용을 삭제할까요?`)) deleteL2(l2.id);
-  });
-  block.appendChild(head);
-
-  const body = document.createElement("div");
-  body.className = "l2-body" + (isOpen ? " open" : "");
-
-  if (entries.length === 0) {
-    const hint = document.createElement("div");
-    hint.className = "empty-hint";
-    hint.style.padding = "12px";
-    hint.style.marginBottom = "8px";
-    hint.textContent = "이번 주 작성된 상세내용이 없습니다.";
-    body.appendChild(hint);
+  const children = state.l2.filter(x => x.l1Id === state.selectedL1);
+  if (children.length === 0) {
+    l2ListEl.appendChild(emptyHint("카테고리가 없습니다. 위 '+ 추가' 버튼으로 만들어보세요."));
+    return;
   }
 
-  entries.forEach(entry => {
-    body.appendChild(renderEntryCard(entry));
+  const weekKey = currentWeekKey();
+  children.forEach(l2 => {
+    const entryCount = state.l3.filter(x => x.l2Id === l2.id && x.week === weekKey).length;
+    const row = document.createElement("div");
+    row.className = "col-row" + (state.selectedL2 === l2.id ? " active" : "");
+    row.innerHTML = `
+      <span class="row-name"></span>
+      <span class="row-sub">${entryCount}</span>
+      <span class="row-actions">
+        <button class="icon-btn" data-act="edit">편집</button>
+        <button class="icon-btn danger" data-act="del">삭제</button>
+      </span>
+    `;
+    row.querySelector(".row-name").textContent = l2.name;
+    row.addEventListener("click", (e) => {
+      if (e.target.dataset.act) return;
+      state.selectedL2 = l2.id;
+      renderAll();
+    });
+    row.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      const next = prompt("카테고리명 수정", l2.name);
+      if (next && next.trim()) renameL2(l2.id, next.trim());
+    });
+    row.querySelector('[data-act="del"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (confirm(`"${l2.name}" 카테고리와 모든 주차의 상세내용을 삭제할까요?`)) deleteL2(l2.id);
+    });
+    l2ListEl.appendChild(row);
   });
+}
+
+function renderCol3(){
+  l3ListEl.innerHTML = "";
+
+  if (!state.selectedL2) {
+    l3TitleEl.textContent = "상세내용";
+    importBtn.hidden = true;
+    l3ListEl.appendChild(emptyHint("카테고리를 선택하세요."));
+    return;
+  }
+
+  const l1 = state.l1.find(x => x.id === state.selectedL1);
+  const l2 = state.l2.find(x => x.id === state.selectedL2);
+  l3TitleEl.textContent = `${l1 ? l1.name : ""} › ${l2 ? l2.name : ""}`;
+
+  importBtn.hidden = false;
+  importBtn.onclick = () => importFromPreviousWeek(state.selectedL2);
+
+  const weekKey = currentWeekKey();
+  const entries = state.l3.filter(x => x.l2Id === state.selectedL2 && x.week === weekKey);
+
+  if (entries.length === 0) {
+    l3ListEl.appendChild(emptyHint("이번 주 작성된 상세내용이 없습니다. 아래 버튼으로 추가하거나, 위 '지난 주 내용 가져오기'로 시작하세요."));
+  }
+  entries.forEach(entry => l3ListEl.appendChild(renderEntryCard(entry)));
 
   const addBtn = document.createElement("button");
   addBtn.className = "add-entry-btn";
   addBtn.textContent = "+ 상세내용 추가";
-  addBtn.addEventListener("click", () => showAddEntryForm(body, addBtn, l2.id));
-  body.appendChild(addBtn);
-
-  block.appendChild(body);
-  return block;
+  addBtn.addEventListener("click", () => showAddEntryForm(l3ListEl, addBtn, state.selectedL2));
+  l3ListEl.appendChild(addBtn);
 }
 
 function renderEntryCard(entry){
@@ -409,9 +445,10 @@ function promptAddL1(){
   const name = prompt("새 프로젝트명 (예: GMCS project)");
   if (name && name.trim()) addL1(name.trim());
 }
-function promptAddL2(l1Id){
+function promptAddL2(){
+  if (!state.selectedL1) return;
   const name = prompt("새 카테고리명 (예: 기획, 대시보드)");
-  if (name && name.trim()) addL2(l1Id, name.trim());
+  if (name && name.trim()) addL2(state.selectedL1, name.trim());
 }
 function showAddEntryForm(container, addBtn, l2Id){
   if (container.querySelector(".inline-form")) return;
