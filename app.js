@@ -333,7 +333,11 @@ async function exportToExcel(){
     const allL2 = s2.docs.map(d => ({ id: d.id, ...d.data() }));
     const allL3 = s3.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    const weeks = Array.from(new Set(allL1.map(x => x.week))).sort();
+    // week 필드가 없는 문서(이전 버전에서 만들어진 옛 데이터 등)가 섞여 있어도
+    // 내보내기가 죽지 않도록, 없으면 "미지정" 시트로 묶습니다.
+    const weekOf = (x) => (x && typeof x.week === "string" && x.week) ? x.week : "미지정";
+
+    const weeks = Array.from(new Set(allL1.map(weekOf))).sort();
     if (weeks.length === 0) {
       alert("내보낼 데이터가 없습니다.");
       return;
@@ -343,19 +347,19 @@ async function exportToExcel(){
     const usedSheetNames = new Set();
 
     weeks.forEach(week => {
-      const weekL1 = sortByCreatedAt(allL1.filter(x => x.week === week));
+      const weekL1 = sortByCreatedAt(allL1.filter(x => weekOf(x) === week));
       const rows = [["분류", "항목", "상세설명"]];
       const merges = [];
 
       weekL1.forEach(l1 => {
-        const children = sortByCreatedAt(allL2.filter(x => x.l1Id === l1.id && x.week === week));
+        const children = sortByCreatedAt(allL2.filter(x => x.l1Id === l1.id && weekOf(x) === week));
         const startRow = rows.length; // 0-indexed, header가 0행
         if (children.length === 0) {
-          rows.push([l1.name, "", ""]);
+          rows.push([l1.name || "", "", ""]);
         } else {
           children.forEach((l2, idx) => {
             const entry = allL3.find(x => x.l2Id === l2.id);
-            rows.push([idx === 0 ? l1.name : "", l2.name, entry ? entry.content : ""]);
+            rows.push([idx === 0 ? (l1.name || "") : "", l2.name || "", entry ? (entry.content || "") : ""]);
           });
           if (children.length > 1) {
             merges.push({ s: { r: startRow, c: 0 }, e: { r: startRow + children.length - 1, c: 0 } });
@@ -367,7 +371,7 @@ async function exportToExcel(){
       ws["!merges"] = merges;
       ws["!cols"] = [{ wch: 22 }, { wch: 22 }, { wch: 55 }];
 
-      let sheetName = week.replace(/[\[\]\*\/\\\?:]/g, "-").slice(0, 31);
+      let sheetName = String(week).replace(/[\[\]\*\/\\\?:]/g, "-").slice(0, 31) || "Sheet";
       let uniqueName = sheetName, n = 2;
       while (usedSheetNames.has(uniqueName)) { uniqueName = `${sheetName.slice(0, 28)}_${n++}`; }
       usedSheetNames.add(uniqueName);
