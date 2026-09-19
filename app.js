@@ -305,10 +305,13 @@ async function fetchWeekSnapshot(team, week){
   const q2 = query(collection(db, "layer2"), where("team", "==", team), where("week", "==", week));
   const q3 = query(collection(db, "layer3"), where("team", "==", team), where("week", "==", week));
   const [s1, s2, s3] = await Promise.all([getDocs(q1), getDocs(q2), getDocs(q3)]);
+  // Firestore는 where()만 걸고 orderBy가 없으면 문서 순서를 보장하지 않습니다(문서 ID
+  // 순서 등으로 뒤섞여 나올 수 있음). 화면에 보이던 것과 같은 순서로 가져오기가
+  // 되도록, 반환하기 전에 항상 생성 시각 기준으로 정렬해 둡니다.
   return {
-    l1: s1.docs.map(d => ({ id: d.id, ...d.data() })),
-    l2: s2.docs.map(d => ({ id: d.id, ...d.data() })),
-    l3: s3.docs.map(d => ({ id: d.id, ...d.data() })),
+    l1: sortByCreatedAt(s1.docs.map(d => ({ id: d.id, ...d.data() }))),
+    l2: sortByCreatedAt(s2.docs.map(d => ({ id: d.id, ...d.data() }))),
+    l3: sortByCreatedAt(s3.docs.map(d => ({ id: d.id, ...d.data() }))),
   };
 }
 
