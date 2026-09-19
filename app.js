@@ -899,9 +899,9 @@ function renderTable(){
     if (children.length === 0) {
       const tr = document.createElement("tr");
       tr.appendChild(buildL1Cell(l1, 1));
-      const td = document.createElement("td");
-      td.colSpan = 4;
-      td.className = "l2-cell empty-l2-cell";
+
+      const l2Td = document.createElement("td");
+      l2Td.className = "l2-cell empty-l2-cell";
       const hint = document.createElement("span");
       hint.className = "muted-text";
       hint.textContent = "항목이 없습니다.";
@@ -909,9 +909,17 @@ function renderTable(){
       addBtn.className = "inline-add-btn";
       addBtn.textContent = "+ 항목 추가";
       addBtn.addEventListener("click", () => promptAddL2(l1.id));
-      td.appendChild(hint);
-      td.appendChild(addBtn);
-      tr.appendChild(td);
+      l2Td.appendChild(hint);
+      l2Td.appendChild(addBtn);
+      tr.appendChild(l2Td);
+
+      /* 항목이 아직 없어도 금주/차주/담당자 칸을 실제 항목이 있는 행과 똑같이
+         5칸으로 나눠서 그려줍니다 — 그래야 표 전체의 세로 구분선과 행 높이가
+         다른 분류(항목이 있는)들과 어긋나지 않습니다. */
+      tr.appendChild(buildEmptyFieldCell("l3-cell thisweek-cell"));
+      tr.appendChild(buildEmptyFieldCell("l3-cell nextweek-cell"));
+      tr.appendChild(buildEmptyFieldCell("assignee-cell"));
+
       tbody.appendChild(tr);
       return;
     }
@@ -926,6 +934,19 @@ function renderTable(){
       tbody.appendChild(tr);
     });
   });
+}
+
+/* 항목이 없는 분류의 금주/차주/담당자 칸을 실제 항목이 있을 때와 같은 모양(점선 박스)으로
+   채워주는 자리표시자입니다. 아직 항목 자체가 없어 저장할 대상이 없으므로 클릭해도
+   아무 동작을 하지 않는 순수 표시용입니다. */
+function buildEmptyFieldCell(className){
+  const td = document.createElement("td");
+  td.className = className;
+  const placeholder = document.createElement("div");
+  placeholder.className = "detail-placeholder placeholder-disabled";
+  placeholder.textContent = "—";
+  td.appendChild(placeholder);
+  return td;
 }
 
 function emptyHint(text){
