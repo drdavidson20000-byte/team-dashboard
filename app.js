@@ -34,6 +34,18 @@ function sortByCreatedAt(arr){
   });
 }
 
+/* layer3(항목별 상세) 문서에서 금주/차주/담당자 값을 읽습니다.
+   예전 버전(단일 "상세설명" 칸)에서 만들어진 문서는 content/author 필드만
+   가지고 있을 수 있어, thisWeek/assignee가 없으면 그 값으로 대체합니다. */
+function getL3Fields(entry){
+  if (!entry) return { thisWeek: "", nextWeek: "", assignee: "" };
+  return {
+    thisWeek: entry.thisWeek !== undefined ? entry.thisWeek : (entry.content || ""),
+    nextWeek: entry.nextWeek || "",
+    assignee: entry.assignee !== undefined ? entry.assignee : (entry.author || ""),
+  };
+}
+
 /* =====================================================================
    상태 (State)
    ===================================================================== */
@@ -269,16 +281,18 @@ async function deleteL2(id){
   if (entry) await deleteDoc(doc(db, "layer3", entry.id));
   await deleteDoc(doc(db, "layer2", id));
 }
-/* 상세설명은 항목(l2) 하나당 하나의 문서로 upsert 합니다(문서 id = l2Id). */
-async function saveL3(l2Id, content, author){
+/* 항목(l2) 하나당 하나의 layer3 문서를 두고, 그 안에 금주(thisWeek)/차주(nextWeek)/
+   담당자(assignee) 세 필드를 각각 따로 upsert 합니다(문서 id = l2Id).
+   merge:true를 써서 한 필드만 저장해도 다른 필드가 지워지지 않도록 합니다. */
+async function saveL3Field(l2Id, field, value){
   await setDoc(doc(db, "layer3", l2Id), {
     team: state.team, week: currentWeekKey(), l2Id,
-    content, author: author || "",
+    [field]: value,
     updatedAt: serverTimestamp()
-  });
+  }, { merge: true });
 }
-async function clearL3(l2Id){
-  await deleteDoc(doc(db, "layer3", l2Id));
+async function clearL3Field(l2Id, field){
+  await saveL3Field(l2Id, field, "");
 }
 
 /* =====================================================================
@@ -316,8 +330,11 @@ async function importPreviousWeekFull(){
     return;
   }
 
-  const writtenCount = prevData.l3.filter(x => x.content).length;
-  let msg = `지난 주(${prevWeek}) 내용을 이번 주로 복사합니다.\n분류 ${prevData.l1.length}개 · 항목 ${prevData.l2.length}개 · 작성된 상세설명 ${writtenCount}건`;
+  const carryCount = prevData.l3.filter(x => getL3Fields(x).nextWeek).length;
+  let msg = `지난 주(${prevWeek}) 내용을 이번 주로 복사합니다.\n분류 ${prevData.l1.length}개 · 항목 ${prevData.l2.length}개`;
+  if (carryCount > 0) {
+    msg += `\n지난 주 "차주" 칸에 적은 ${carryCount}건은 이번 주 "금주" 칸으로 옮겨집니다(한 번만 반영되며, 이후 서로 영향을 주지 않습니다).`;
+  }
   if (state.l1.length > 0) {
     msg += `\n\n⚠ 이번 주에는 이미 작성된 분류/항목이 있습니다. 지난 주 내용이 별도로 추가 복사되며, 기존 내용은 삭제되지 않습니다.`;
   }
@@ -336,12 +353,22 @@ async function importPreviousWeekFull(){
     const ref = await addDoc(collection(db, "layer2"), { team: state.team, week: curWeek, l1Id: newL1Id, name: l2.name, createdAt: serverTimestamp() });
     l2IdMap[l2.id] = ref.id;
   }
+  // 지난 주 "차주" 값을 이번 주 "금주" 값으로 1회성 이관합니다(일방향 — 이후 이번 주
+  // "금주"를 고쳐도 지난 주 "차주"에는 영향이 없고, 지난 주 "차주"를 나중에 또 고쳐도
+  // 이미 복사된 이번 주 값이 저절로 다시 바뀌지 않습니다). "금주"는 새 주 것이라 이어받지
+  // 않고, 담당자만 그대로 유지합니다.
   for (const l3 of prevData.l3) {
     const newL2Id = l2IdMap[l3.l2Id];
-    if (!newL2Id || !l3.content) continue;
+    if (!newL2Id) continue;
+    const oldFields = getL3Fields(l3);
+    const carriedThisWeek = oldFields.nextWeek;
+    const carriedAssignee = oldFields.assignee;
+    if (!carriedThisWeek && !carriedAssignee) continue;
     await setDoc(doc(db, "layer3", newL2Id), {
       team: state.team, week: curWeek, l2Id: newL2Id,
-      content: l3.content, author: l3.author || "",
+      thisWeek: carriedThisWeek,
+      nextWeek: "",
+      assignee: carriedAssignee,
       updatedAt: serverTimestamp()
     });
   }
@@ -386,18 +413,19 @@ async function exportToExcel(){
 
     weeks.forEach(week => {
       const weekL1 = sortByCreatedAt(allL1.filter(x => weekOf(x) === week));
-      const rows = [["분류", "항목", "상세설명"]];
+      const rows = [["분류", "항목", "금주", "차주", "담당자"]];
       const merges = [];
 
       weekL1.forEach(l1 => {
         const children = sortByCreatedAt(allL2.filter(x => x.l1Id === l1.id && weekOf(x) === week));
         const startRow = rows.length; // 0-indexed, header가 0행
         if (children.length === 0) {
-          rows.push([l1.name || "", "", ""]);
+          rows.push([l1.name || "", "", "", "", ""]);
         } else {
           children.forEach((l2, idx) => {
             const entry = allL3.find(x => x.l2Id === l2.id);
-            rows.push([idx === 0 ? (l1.name || "") : "", l2.name || "", entry ? (entry.content || "") : ""]);
+            const f = getL3Fields(entry);
+            rows.push([idx === 0 ? (l1.name || "") : "", l2.name || "", f.thisWeek, f.nextWeek, f.assignee]);
           });
           if (children.length > 1) {
             merges.push({ s: { r: startRow, c: 0 }, e: { r: startRow + children.length - 1, c: 0 } });
@@ -407,7 +435,7 @@ async function exportToExcel(){
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
       ws["!merges"] = merges;
-      ws["!cols"] = [{ wch: 22 }, { wch: 22 }, { wch: 55 }];
+      ws["!cols"] = [{ wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 40 }, { wch: 14 }];
 
       let sheetName = String(week).replace(/[\[\]\*\/\\\?:]/g, "-").slice(0, 31) || "Sheet";
       let uniqueName = sheetName, n = 2;
@@ -784,7 +812,7 @@ function renderTable(){
   if (state.l1.length === 0) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 3;
+    td.colSpan = 5;
     td.appendChild(emptyHint("이번 주에 등록된 분류가 없습니다. 위 '+ 프로젝트 추가'로 새로 시작하거나, '지난 주 내용 가져오기'로 이어서 작성하세요."));
     tr.appendChild(td);
     tbody.appendChild(tr);
@@ -798,7 +826,7 @@ function renderTable(){
       const tr = document.createElement("tr");
       tr.appendChild(buildL1Cell(l1, 1));
       const td = document.createElement("td");
-      td.colSpan = 2;
+      td.colSpan = 4;
       td.className = "l2-cell empty-l2-cell";
       const hint = document.createElement("span");
       hint.className = "muted-text";
@@ -818,7 +846,9 @@ function renderTable(){
       const tr = document.createElement("tr");
       if (idx === 0) tr.appendChild(buildL1Cell(l1, children.length));
       tr.appendChild(buildL2Cell(l2));
-      tr.appendChild(buildL3Cell(l2));
+      tr.appendChild(buildFieldCell(l2, "thisWeek", "l3-cell thisweek-cell"));
+      tr.appendChild(buildFieldCell(l2, "nextWeek", "l3-cell nextweek-cell"));
+      tr.appendChild(buildAssigneeCell(l2));
       tbody.appendChild(tr);
     });
   });
@@ -886,34 +916,39 @@ function buildL2Cell(l2){
   return td;
 }
 
-function buildL3Cell(l2){
+/* field: "thisWeek"(금주) | "nextWeek"(차주). 두 열 모두 같은 클릭-편집 UI를 공유합니다. */
+function buildFieldCell(l2, field, className){
   const td = document.createElement("td");
-  td.className = "l3-cell";
+  td.className = className;
 
   const entry = state.l3.find(x => x.l2Id === l2.id);
+  const value = getL3Fields(entry)[field];
+  const editKey = `${l2.id}|${field}`;
 
-  if (state.editingKey === l2.id) {
-    renderL3EditMode(td, l2, entry);
+  if (state.editingKey === editKey) {
+    renderFieldEditMode(td, l2, field, value);
   } else {
-    renderL3ViewMode(td, l2, entry);
+    renderFieldViewMode(td, l2, field, value, entry);
   }
   return td;
 }
 
-function renderL3ViewMode(td, l2, entry){
-  if (entry && entry.content) {
+function renderFieldViewMode(td, l2, field, value, entry){
+  const editKey = `${l2.id}|${field}`;
+  const label = field === "thisWeek" ? "금주" : "차주";
+
+  if (value) {
     const text = document.createElement("div");
     text.className = "detail-text";
-    text.textContent = entry.content;
-    text.addEventListener("click", () => { state.editingKey = l2.id; renderTable(); });
+    text.textContent = value;
+    text.addEventListener("click", () => { state.editingKey = editKey; renderTable(); });
     td.appendChild(text);
 
     const meta = document.createElement("div");
     meta.className = "detail-meta";
-    const when = entry.updatedAt && entry.updatedAt.toDate ? entry.updatedAt.toDate() : null;
+    const when = entry && entry.updatedAt && entry.updatedAt.toDate ? entry.updatedAt.toDate() : null;
     const whenStr = when ? `${when.getMonth()+1}/${when.getDate()} ${String(when.getHours()).padStart(2,"0")}:${String(when.getMinutes()).padStart(2,"0")}` : "";
     meta.innerHTML = `
-      <span>${entry.author ? escapeHtml(entry.author) : "작성자 미상"}</span>
       <span>${whenStr}</span>
       <span class="spacer"></span>
       <button class="icon-btn" data-act="edit">편집</button>
@@ -921,46 +956,42 @@ function renderL3ViewMode(td, l2, entry){
     `;
     meta.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
       e.stopPropagation();
-      state.editingKey = l2.id;
+      state.editingKey = editKey;
       renderTable();
     });
     meta.querySelector('[data-act="del"]').addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (confirm("이번 주 상세설명을 삭제할까요?")) await clearL3(l2.id);
+      if (confirm(`${label} 내용을 삭제할까요?`)) await clearL3Field(l2.id, field);
     });
     td.appendChild(meta);
   } else {
     const placeholder = document.createElement("div");
     placeholder.className = "detail-placeholder";
     placeholder.textContent = "클릭해서 작성";
-    placeholder.addEventListener("click", () => { state.editingKey = l2.id; renderTable(); });
+    placeholder.addEventListener("click", () => { state.editingKey = editKey; renderTable(); });
     td.appendChild(placeholder);
   }
 }
 
-function renderL3EditMode(td, l2, entry){
+function renderFieldEditMode(td, l2, field, value){
+  const placeholderText = field === "thisWeek" ? "금주 진행 내용을 입력하세요..." : "차주(다음 주) 계획을 입력하세요...";
   const form = document.createElement("div");
   form.className = "inline-form l3-edit-form";
   form.innerHTML = `
-    <input type="text" placeholder="작성자 (선택)" class="author-input">
-    <textarea placeholder="상세설명을 입력하세요..."></textarea>
+    <textarea placeholder="${placeholderText}"></textarea>
     <div class="row">
       <button class="btn-sm save">저장</button>
       <button class="btn-sm cancel">취소</button>
     </div>
   `;
   const textarea = form.querySelector("textarea");
-  const authorInput = form.querySelector(".author-input");
-  textarea.value = entry ? (entry.content || "") : "";
-  authorInput.value = entry ? (entry.author || "") : "";
+  textarea.value = value || "";
   td.appendChild(form);
   textarea.focus();
 
   form.querySelector(".save").addEventListener("click", async () => {
     const content = textarea.value.trim();
-    const author = authorInput.value.trim();
-    if (!content) { textarea.focus(); return; }
-    await saveL3(l2.id, content, author);
+    await saveL3Field(l2.id, field, content);
     state.editingKey = null;
     renderTable();
   });
@@ -968,6 +999,41 @@ function renderL3EditMode(td, l2, entry){
     state.editingKey = null;
     renderTable();
   });
+}
+
+/* 담당자 열 — 별도 편집 모드 없이 표 안에 바로 입력창이 보이고, 포커스를 벗어나거나
+   Enter를 누르면 저장됩니다(스프레드시트의 셀 입력과 비슷한 느낌). */
+function buildAssigneeCell(l2){
+  const td = document.createElement("td");
+  td.className = "assignee-cell";
+
+  const entry = state.l3.find(x => x.l2Id === l2.id);
+  const assignee = getL3Fields(entry).assignee;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "assignee-input";
+  input.placeholder = "담당자";
+  input.value = assignee;
+
+  let saving = false;
+  const commit = async () => {
+    const val = input.value.trim();
+    if (val === assignee || saving) return;
+    saving = true;
+    try {
+      await saveL3Field(l2.id, "assignee", val);
+    } finally {
+      saving = false;
+    }
+  };
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+  });
+
+  td.appendChild(input);
+  return td;
 }
 
 function escapeHtml(s){

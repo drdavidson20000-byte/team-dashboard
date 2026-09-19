@@ -303,8 +303,11 @@ header.topbar .right{
   border-bottom:1px solid var(--border);
   white-space:nowrap;
 }
-.report-table th.th-l1{ width:170px; }
-.report-table th.th-l2{ width:170px; }
+.report-table th.th-l1{ width:150px; }
+.report-table th.th-l2{ width:150px; }
+.report-table th.th-thisweek{ width:auto; }
+.report-table th.th-nextweek{ width:auto; }
+.report-table th.th-assignee{ width:110px; }
 .report-table td{
   padding:12px 14px;
   border-bottom:1px solid var(--border);
@@ -316,7 +319,7 @@ header.topbar .right{
 
 .l1-cell{
   background:#fbfbfd;
-  width:170px;
+  width:150px;
 }
 .l1-name{
   font-weight:700;
@@ -329,7 +332,7 @@ header.topbar .right{
   gap:4px;
 }
 
-.l2-cell{ width:170px; }
+.l2-cell{ width:150px; }
 .l2-name{
   font-weight:600;
   margin-bottom:6px;
@@ -357,7 +360,25 @@ header.topbar .right{
   white-space:nowrap;
 }
 
-.l3-cell{ min-width:320px; }
+.l3-cell{ min-width:220px; }
+.thisweek-cell{ background:#fdfdfd; }
+.nextweek-cell{ background:#fbfbfd; }
+
+.assignee-cell{ width:110px; vertical-align:middle; }
+.assignee-input{
+  width:100%;
+  padding:7px 9px;
+  border:1px solid transparent;
+  border-radius:6px;
+  font-size:13px;
+  background:transparent;
+}
+.assignee-input:hover{ background:var(--bg); }
+.assignee-input:focus{
+  outline:none;
+  border-color:var(--accent);
+  background:#fff;
+}
 .detail-text{
   line-height:1.55;
   white-space:pre-wrap;
