@@ -684,7 +684,7 @@ header.topbar .right{
 
 .perf-table{
   font-size:12.5px;
-  table-layout:auto;
+  table-layout:fixed;
 }
 .perf-table th{
   text-align:center;
@@ -712,21 +712,22 @@ header.topbar .right{
   vertical-align:middle;
 }
 
-/* 열 그룹별 대략적인 기본 너비 (내용 길이에 맞춘 참고용 값이며, 좁은 화면에서는
-   가로 스크롤로 확인합니다) */
-.pc-eval{ width:90px; }
-.pc-strategy{ width:110px; }
-.pc-goaldef{ width:170px; }
-.pc-goallevel{ width:170px; }
-.pc-strategydetail{ width:230px; }
-.pc-formula{ width:190px; }
+/* 열 그룹별 기본 너비. 표 전체 폭이 화면보다 넓어지면 아래 .table-wrap의
+   가로 스크롤로 좌우로 움직여서 봅니다(내용을 억지로 좁은 칸에 욱여넣어
+   줄바꿈이 과도하게 늘어나며 행이 세로로 길어지는 것을 막기 위함). */
+.pc-eval{ width:100px; }
+.pc-strategy{ width:120px; }
+.pc-goaldef{ width:190px; }
+.pc-goallevel{ width:200px; }
+.pc-strategydetail{ width:300px; }
+.pc-formula{ width:240px; }
 .pc-weight{ width:60px; }
-.pc-method{ width:170px; }
+.pc-method{ width:220px; }
 .pc-cycle{ width:60px; }
-.pc-output{ width:140px; }
-.pc-current{ width:170px; }
-.pc-criteria{ width:150px; }
-.pc-aux{ width:60px; }
+.pc-output{ width:170px; }
+.pc-current{ width:200px; }
+.pc-criteria{ width:190px; }
+.pc-aux{ width:70px; }
 
 /* 열 그룹 숨기기 — 헤더/본문 셀과 colgroup의 col을 함께 숨겨서
    빈 칸 없이 표 너비가 자연스럽게 줄어들도록 합니다. */
