@@ -59,7 +59,7 @@ const state = {
   fetchError: null,
 
   // ---- 지시사항 탭 ----
-  activeMainTab: "weekly",     // "weekly" | "directives"
+  activeMainTab: "weekly",     // "weekly" | "directives" | "performance"
   directives: [],              // [{id, instructionDate, dueDate, content, team, assignee, status, createdAt}]
   directivesFetchError: null,
   directivesFilter: { team: "all", status: "all", q: "" },
@@ -195,6 +195,7 @@ function initApp(){
   initDirectivesTab();
   subscribeDirectives();
   initColumnResize();
+  initPerformanceTab();
 }
 
 /* =====================================================================
@@ -268,7 +269,7 @@ function initColumnResize(){
 }
 
 /* =====================================================================
-   상단 메인 탭 전환 (주간보고 / 지시사항 / 성과관리(비활성))
+   상단 메인 탭 전환 (주간보고 / 지시사항 / 성과관리)
    ===================================================================== */
 function initMainTabs(){
   document.querySelectorAll(".main-tab").forEach(tab => {
@@ -281,8 +282,64 @@ function initMainTabs(){
       tab.classList.add("active");
       document.getElementById("tab-panel-weekly").hidden = target !== "weekly";
       document.getElementById("tab-panel-directives").hidden = target !== "directives";
+      document.getElementById("tab-panel-performance").hidden = target !== "performance";
     });
   });
+}
+
+/* =====================================================================
+   성과관리 표 — 열 그룹(산출식 / 측정 방법 / 평가 기준 / 보조 지표) 숨기기·보이기.
+   순수 정적 참고용 표라 Firestore에 저장하지 않고, 어떤 열을 숨겼는지만
+   이 브라우저에 저장해 다음에 다시 열어도 유지되도록 합니다.
+   ===================================================================== */
+const PERF_HIDE_STORAGE_KEY = "perfTableHiddenGroups";
+const PERF_HIDE_GROUPS = ["formula", "method", "criteria", "aux"];
+
+function loadPerfHiddenGroups(){
+  try {
+    const saved = JSON.parse(localStorage.getItem(PERF_HIDE_STORAGE_KEY) || "[]");
+    return Array.isArray(saved) ? saved.filter(g => PERF_HIDE_GROUPS.includes(g)) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function savePerfHiddenGroups(groups){
+  try {
+    localStorage.setItem(PERF_HIDE_STORAGE_KEY, JSON.stringify(groups));
+  } catch (e) {
+    // localStorage를 쓸 수 없는 환경이면 조용히 무시합니다.
+  }
+}
+
+function initPerformanceTab(){
+  const table = document.getElementById("perf-table");
+  if (!table) return;
+
+  const hidden = new Set(loadPerfHiddenGroups());
+
+  const applyState = () => {
+    PERF_HIDE_GROUPS.forEach(group => {
+      table.classList.toggle(`hide-${group}`, hidden.has(group));
+    });
+    document.querySelectorAll(".perf-toggle-btn").forEach(btn => {
+      const group = btn.dataset.hideGroup;
+      const isHidden = hidden.has(group);
+      btn.classList.toggle("active", isHidden);
+      btn.textContent = (isHidden ? "숨김: " : "") + btn.dataset.label;
+    });
+  };
+
+  document.querySelectorAll(".perf-toggle-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const group = btn.dataset.hideGroup;
+      if (hidden.has(group)) hidden.delete(group); else hidden.add(group);
+      savePerfHiddenGroups([...hidden]);
+      applyState();
+    });
+  });
+
+  applyState();
 }
 
 function renderWeekBar(){

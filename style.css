@@ -651,3 +651,88 @@ header.topbar .right{
   header.topbar{ padding:12px 16px; }
   header.topbar h1{ font-size:14.5px; }
 }
+
+/* ---------- 성과관리 표 ---------- */
+.perf-toolbar{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:14px;
+}
+.perf-toolbar-label{
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--text-dim);
+  margin-right:2px;
+}
+.perf-toggle-btn{
+  font-size:12.5px;
+  font-weight:600;
+  padding:6px 12px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--card);
+  color:var(--text-dim);
+}
+.perf-toggle-btn:hover{ border-color:var(--accent); color:var(--accent); }
+.perf-toggle-btn.active{
+  background:var(--accent-dim);
+  border-color:var(--accent);
+  color:var(--accent);
+}
+
+.perf-table{
+  font-size:12.5px;
+  table-layout:auto;
+}
+.perf-table th{
+  text-align:center;
+  white-space:normal;
+  line-height:1.4;
+}
+.perf-table td.perf-cell{
+  white-space:normal;
+  line-height:1.5;
+  word-break:break-word;
+}
+.perf-table td.perf-cell-center{
+  text-align:center;
+}
+.perf-table td.perf-eval-cell{
+  background:#fbfbfd;
+  font-weight:700;
+  text-align:center;
+  vertical-align:middle;
+}
+.perf-table td.perf-strategy-cell{
+  background:#fafbfc;
+  font-weight:600;
+  text-align:center;
+  vertical-align:middle;
+}
+
+/* 열 그룹별 대략적인 기본 너비 (내용 길이에 맞춘 참고용 값이며, 좁은 화면에서는
+   가로 스크롤로 확인합니다) */
+.pc-eval{ width:90px; }
+.pc-strategy{ width:110px; }
+.pc-goaldef{ width:170px; }
+.pc-goallevel{ width:170px; }
+.pc-strategydetail{ width:230px; }
+.pc-formula{ width:190px; }
+.pc-weight{ width:60px; }
+.pc-method{ width:170px; }
+.pc-cycle{ width:60px; }
+.pc-output{ width:140px; }
+.pc-current{ width:170px; }
+.pc-criteria{ width:150px; }
+.pc-aux{ width:60px; }
+
+/* 열 그룹 숨기기 — 헤더/본문 셀과 colgroup의 col을 함께 숨겨서
+   빈 칸 없이 표 너비가 자연스럽게 줄어들도록 합니다. */
+.perf-table.hide-formula [data-colgrp="formula"],
+.perf-table.hide-method [data-colgrp="method"],
+.perf-table.hide-criteria [data-colgrp="criteria"],
+.perf-table.hide-aux [data-colgrp="aux"]{
+  display:none;
+}
