@@ -194,6 +194,77 @@ function initApp(){
   initMainTabs();
   initDirectivesTab();
   subscribeDirectives();
+  initColumnResize();
+}
+
+/* =====================================================================
+   주간보고 표 — 열 너비를 드래그로 직접 조절 (이 브라우저에 저장되어
+   다음에 열어도 유지됩니다. 다른 팀원의 화면에는 영향을 주지 않습니다.)
+   ===================================================================== */
+const COL_WIDTH_STORAGE_KEY = "weeklyReportColWidths";
+const DEFAULT_COL_WIDTHS = { l1: 150, l2: 150, thisweek: 280, nextweek: 280, assignee: 120 };
+const MIN_COL_WIDTH = 70;
+
+function loadColumnWidths(){
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(COL_WIDTH_STORAGE_KEY) || "{}");
+  } catch (e) {
+    saved = {};
+  }
+  return { ...DEFAULT_COL_WIDTHS, ...saved };
+}
+
+function saveColumnWidths(widths){
+  try {
+    localStorage.setItem(COL_WIDTH_STORAGE_KEY, JSON.stringify(widths));
+  } catch (e) {
+    // localStorage를 쓸 수 없는 환경(사생활 보호 모드 등)이면 조용히 무시합니다.
+  }
+}
+
+function applyColumnWidths(widths){
+  document.querySelectorAll("#report-table colgroup col").forEach(col => {
+    const key = col.dataset.col;
+    if (widths[key]) col.style.width = widths[key] + "px";
+  });
+}
+
+function initColumnResize(){
+  const table = document.getElementById("report-table");
+  if (!table) return;
+
+  applyColumnWidths(loadColumnWidths());
+
+  table.querySelectorAll(".col-resize-handle").forEach(handle => {
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const key = handle.dataset.col;
+      const col = table.querySelector(`colgroup col[data-col="${key}"]`);
+      if (!col) return;
+
+      const startX = e.clientX;
+      const startWidth = parseInt(col.style.width, 10) || DEFAULT_COL_WIDTHS[key] || 150;
+      handle.classList.add("resizing");
+      table.classList.add("col-resizing");
+
+      const onMove = (moveEvent) => {
+        const delta = moveEvent.clientX - startX;
+        col.style.width = Math.max(MIN_COL_WIDTH, startWidth + delta) + "px";
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        handle.classList.remove("resizing");
+        table.classList.remove("col-resizing");
+        const widths = loadColumnWidths();
+        widths[key] = parseInt(col.style.width, 10);
+        saveColumnWidths(widths);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  });
 }
 
 /* =====================================================================

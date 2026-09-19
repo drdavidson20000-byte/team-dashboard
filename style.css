@@ -2,6 +2,7 @@
   --bg:#f4f5f7;
   --card:#ffffff;
   --border:#e3e5e9;
+  --table-border:#c7cad2;
   --text:#1c1e21;
   --text-dim:#6b7280;
   --accent:#3b5bdb;
@@ -150,7 +151,7 @@ header.topbar .right{
 }
 
 .content-wrap{
-  max-width:1100px;
+  max-width:1320px;
   margin:0 auto;
   padding:24px 16px 60px;
 }
@@ -300,26 +301,42 @@ header.topbar .right{
   color:var(--text-dim);
   font-weight:700;
   font-size:12.5px;
-  border-bottom:1px solid var(--border);
+  border-bottom:1px solid var(--table-border);
   white-space:nowrap;
 }
-.report-table th.th-l1{ width:150px; }
-.report-table th.th-l2{ width:150px; }
-.report-table th.th-thisweek{ width:auto; }
-.report-table th.th-nextweek{ width:auto; }
-.report-table th.th-assignee{ width:110px; }
 .report-table td{
   padding:12px 14px;
-  border-bottom:1px solid var(--border);
-  border-right:1px solid var(--border);
+  border-bottom:1px solid var(--table-border);
+  border-right:1px solid var(--table-border);
   vertical-align:top;
 }
 .report-table td:last-child{ border-right:none; }
 .report-table tbody tr:last-child td{ border-bottom:none; }
 
+/* ---------- 주간보고 표: 열 너비 직접 조절 가능 ---------- */
+.weekly-report-table{ table-layout:fixed; }
+.weekly-report-table th{
+  position:relative;
+  white-space:normal;
+}
+.col-resize-handle{
+  position:absolute;
+  top:0;
+  right:-4px;
+  width:8px;
+  height:100%;
+  cursor:col-resize;
+  z-index:2;
+  touch-action:none;
+}
+.col-resize-handle:hover,
+.col-resize-handle.resizing{
+  background:rgba(59,91,219,0.25);
+}
+.weekly-report-table.col-resizing{ cursor:col-resize; user-select:none; }
+
 .l1-cell{
   background:#fbfbfd;
-  width:150px;
 }
 .l1-name{
   font-weight:700;
@@ -332,7 +349,7 @@ header.topbar .right{
   gap:4px;
 }
 
-.l2-cell{ width:150px; }
+.l2-cell{ }
 .l2-name{
   font-weight:600;
   margin-bottom:6px;
@@ -364,7 +381,7 @@ header.topbar .right{
 .thisweek-cell{ background:#fdfdfd; }
 .nextweek-cell{ background:#fbfbfd; }
 
-.assignee-cell{ width:110px; vertical-align:middle; }
+.assignee-cell{ vertical-align:middle; overflow:hidden; }
 .assignee-input{
   width:100%;
   padding:7px 9px;

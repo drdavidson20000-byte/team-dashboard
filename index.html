@@ -73,14 +73,21 @@
       </div>
 
       <div class="table-wrap" id="table-wrap">
-        <table class="report-table">
+        <table class="report-table weekly-report-table" id="report-table">
+          <colgroup>
+            <col data-col="l1">
+            <col data-col="l2">
+            <col data-col="thisweek">
+            <col data-col="nextweek">
+            <col data-col="assignee">
+          </colgroup>
           <thead>
             <tr>
-              <th class="th-l1">분류</th>
-              <th class="th-l2">항목</th>
-              <th class="th-thisweek">금주</th>
-              <th class="th-nextweek">차주</th>
-              <th class="th-assignee">담당자</th>
+              <th class="th-l1">분류<span class="col-resize-handle" data-col="l1" title="드래그해서 너비 조절"></span></th>
+              <th class="th-l2">항목<span class="col-resize-handle" data-col="l2" title="드래그해서 너비 조절"></span></th>
+              <th class="th-thisweek">금주<span class="col-resize-handle" data-col="thisweek" title="드래그해서 너비 조절"></span></th>
+              <th class="th-nextweek">차주<span class="col-resize-handle" data-col="nextweek" title="드래그해서 너비 조절"></span></th>
+              <th class="th-assignee">담당자<span class="col-resize-handle" data-col="assignee" title="드래그해서 너비 조절"></span></th>
             </tr>
           </thead>
           <tbody id="report-tbody"></tbody>
