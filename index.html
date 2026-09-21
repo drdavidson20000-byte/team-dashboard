@@ -42,6 +42,7 @@
     <div class="main-tab active" data-tab="weekly">주간보고</div>
     <div class="main-tab" data-tab="directives">지시사항</div>
     <div class="main-tab" data-tab="performance">성과관리</div>
+    <div class="main-tab" data-tab="restaurants">식당</div>
   </nav>
 
   <div class="content-wrap">
@@ -361,6 +362,50 @@
       </div>
     </div>
 
+    <!-- ===================== TAB: 식당 ===================== -->
+    <div class="tab-panel" id="tab-panel-restaurants" hidden>
+      <div class="toolbar-row">
+        <button class="add-l1-btn" id="add-restaurant-btn">+ 식당 추가</button>
+      </div>
+
+      <div class="filter-bar">
+        <div class="filter-field">
+          <label for="rest-filter-category">분류</label>
+          <select id="rest-filter-category">
+            <option value="all">전체</option>
+            <option value="한식">한식</option>
+            <option value="중식">중식</option>
+            <option value="일식">일식</option>
+            <option value="아시안">아시안</option>
+            <option value="양식">양식</option>
+            <option value="간편식">간편식</option>
+            <option value="카페">카페</option>
+            <option value="주류">주류</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div class="filter-field">
+          <label for="rest-filter-location">위치</label>
+          <select id="rest-filter-location">
+            <option value="all">전체</option>
+            <option value="방이">방이</option>
+            <option value="송리단">송리단</option>
+            <option value="롯데몰">롯데몰</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div class="filter-field filter-field-search">
+          <label for="rest-filter-q">검색</label>
+          <input id="rest-filter-q" type="text" placeholder="식당명, 메모로 검색">
+        </div>
+        <button class="icon-btn" id="rest-filter-reset">필터 초기화</button>
+      </div>
+
+      <div id="restaurant-status-banner" class="empty-hint" hidden></div>
+
+      <div class="restaurant-grid" id="restaurant-grid"></div>
+    </div>
+
   </div>
 </div>
 
@@ -411,6 +456,71 @@
       </div>
     </form>
   </div>
+</div>
+
+<!-- ===================== 식당 추가/편집 모달 ===================== -->
+<div id="restaurant-modal-overlay" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <h2 id="restaurant-modal-title">식당 추가</h2>
+    <form id="restaurant-form">
+      <div class="modal-field">
+        <label for="rest-input-name">식당명</label>
+        <input type="text" id="rest-input-name" placeholder="예: 몽탄 방이점" required>
+      </div>
+      <div class="modal-row">
+        <div class="modal-field">
+          <label for="rest-input-category">분류</label>
+          <select id="rest-input-category">
+            <option value="한식">한식</option>
+            <option value="중식">중식</option>
+            <option value="일식">일식</option>
+            <option value="아시안">아시안</option>
+            <option value="양식">양식</option>
+            <option value="간편식">간편식</option>
+            <option value="카페">카페</option>
+            <option value="주류">주류</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div class="modal-field">
+          <label for="rest-input-location">위치</label>
+          <select id="rest-input-location">
+            <option value="방이">방이</option>
+            <option value="송리단">송리단</option>
+            <option value="롯데몰">롯데몰</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-field">
+        <label for="rest-input-memo">메모</label>
+        <textarea id="rest-input-memo" placeholder="맛, 가격대, 추천 메뉴, 방문 후기 등을 자유롭게 적어보세요..."></textarea>
+      </div>
+      <div class="modal-field">
+        <label for="rest-input-author">작성자</label>
+        <input type="text" id="rest-input-author" placeholder="작성자명">
+      </div>
+      <div class="modal-field">
+        <label>사진 (최대 4장, 자동으로 용량을 줄여서 저장합니다)</label>
+        <div class="image-dropzone" id="rest-image-dropzone" tabindex="0">
+          <span>여기를 클릭한 뒤 캡처한 이미지를 <b>붙여넣기(Ctrl+V)</b>하거나, 파일을 이 위로 끌어다 놓으세요.</span>
+          <button type="button" class="inline-add-btn" id="rest-image-pick-btn">파일 선택</button>
+          <input type="file" id="rest-image-file-input" accept="image/*" multiple hidden>
+        </div>
+        <div class="image-preview-list" id="rest-image-preview-list"></div>
+      </div>
+      <div id="restaurant-form-error" class="modal-error"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-sm cancel" id="restaurant-modal-cancel">취소</button>
+        <button type="submit" class="btn-sm save">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== 사진 확대보기 ===================== -->
+<div id="image-lightbox-overlay" class="modal-overlay lightbox-overlay" hidden>
+  <img id="image-lightbox-img" src="" alt="사진 확대보기">
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>

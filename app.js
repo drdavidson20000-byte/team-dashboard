@@ -59,17 +59,26 @@ const state = {
   fetchError: null,
 
   // ---- 지시사항 탭 ----
-  activeMainTab: "weekly",     // "weekly" | "directives" | "performance"
+  activeMainTab: "weekly",     // "weekly" | "directives" | "performance" | "restaurants"
   directives: [],              // [{id, instructionDate, dueDate, content, team, assignee, status, createdAt}]
   directivesFetchError: null,
   directivesFilter: { team: "all", status: "all", q: "" },
   directivesSort: { field: null, dir: "asc" }, // field=null → 기본(진행중 우선 + 지시날짜 내림차순) 정렬
   directiveModalMode: null,    // "add" | "edit" | null
   directiveEditingId: null,
+
+  // ---- 식당 탭 ----
+  restaurants: [],             // [{id, name, category, location, memo, author, images:[dataURL...], createdAt}]
+  restaurantsFetchError: null,
+  restaurantFilter: { category: "all", location: "all", q: "" },
+  restaurantModalMode: null,   // "add" | "edit" | null
+  restaurantEditingId: null,
 };
 
 let unsubL1 = null, unsubL2 = null, unsubL3 = null;
 let unsubDirectives = null;
+let unsubRestaurants = null;
+let pendingRestaurantImages = []; // 식당 추가/편집 폼이 열려 있는 동안만 쓰는 임시 사진 목록(dataURL)
 
 /* =====================================================================
    ISO 주차 유틸
@@ -148,6 +157,7 @@ onAuthStateChanged(auth, (user) => {
     unsubscribeAll();
     state.l1 = []; state.l2 = []; state.l3 = [];
     state.directives = [];
+    state.restaurants = [];
   }
 });
 
@@ -160,6 +170,7 @@ function unsubscribeWeeklyListeners(){
 function unsubscribeAll(){
   unsubscribeWeeklyListeners();
   if (unsubDirectives) { unsubDirectives(); unsubDirectives = null; }
+  if (unsubRestaurants) { unsubRestaurants(); unsubRestaurants = null; }
 }
 
 /* =====================================================================
@@ -196,6 +207,8 @@ function initApp(){
   subscribeDirectives();
   initColumnResize();
   initPerformanceTab();
+  initRestaurantsTab();
+  subscribeRestaurants();
 }
 
 /* =====================================================================
@@ -283,6 +296,7 @@ function initMainTabs(){
       document.getElementById("tab-panel-weekly").hidden = target !== "weekly";
       document.getElementById("tab-panel-directives").hidden = target !== "directives";
       document.getElementById("tab-panel-performance").hidden = target !== "performance";
+      document.getElementById("tab-panel-restaurants").hidden = target !== "restaurants";
     });
   });
 }
@@ -913,6 +927,410 @@ async function onDirectiveFormSubmit(e){
       await addDirective(data);
     }
     closeDirectiveModal();
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = "저장 중 오류가 발생했습니다: " + err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+/* =====================================================================
+   식당 탭 — 팀 구분 없이 전체가 함께 보는 하나의 공유 메모장입니다.
+   사진은 별도 저장소(Firebase Storage) 없이, 브라우저에서 자동으로
+   작게 압축한 뒤 글 내용과 함께 Firestore 문서 안에 그대로 저장합니다
+   (Storage를 쓰려면 유료 요금제 업그레이드가 필요해, 완전 무료 구성을
+   유지하기 위한 선택입니다). 그래서 한 식당당 사진은 최대 4장, 압축 후
+   합쳐서 약 900KB를 넘지 않도록 제한합니다(Firestore 문서 1개당 1MB 한도).
+   ===================================================================== */
+const REST_MAX_IMAGES = 4;
+const REST_MAX_DIM = 800;          // 압축 후 긴 변 최대 길이(px)
+const REST_JPEG_QUALITY = 0.6;
+const REST_MAX_TOTAL_BYTES = 900 * 1024; // 식당 1건당 사진 총합 한도
+
+function subscribeRestaurants(){
+  const q = query(collection(db, "restaurants"));
+  unsubRestaurants = onSnapshot(q, snap => {
+    // 최신 등록순(먼저 만든 순으로 정렬한 뒤 뒤집음)으로 보여줍니다.
+    state.restaurants = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() }))).reverse();
+    state.restaurantsFetchError = null;
+    renderRestaurants();
+  }, (err) => {
+    console.error("restaurants 구독 오류", err);
+    state.restaurantsFetchError = "Firestore 연결에 실패했습니다. firebase-config.js 값과 firestore.rules 배포 상태를 확인하세요.";
+    renderRestaurants();
+  });
+}
+
+async function addRestaurant(data){
+  await addDoc(collection(db, "restaurants"), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+async function updateRestaurant(id, data){
+  await updateDoc(doc(db, "restaurants", id), { ...data, updatedAt: serverTimestamp() });
+}
+async function deleteRestaurant(id){
+  await deleteDoc(doc(db, "restaurants", id));
+}
+
+function getFilteredRestaurants(){
+  const { category, location, q } = state.restaurantFilter;
+  const needle = q.trim().toLowerCase();
+  return state.restaurants.filter(r => {
+    if (category !== "all" && r.category !== category) return false;
+    if (location !== "all" && r.location !== location) return false;
+    if (needle) {
+      const hay = `${r.name || ""} ${r.memo || ""}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
+}
+
+/* ---- 사진 압축 (Storage 없이 Firestore에 바로 저장하기 위함) ---- */
+function dataUrlBytes(dataUrl){
+  const idx = dataUrl.indexOf(",");
+  const b64 = idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+  return Math.floor(b64.length * 0.75);
+}
+
+function compressImageFile(file){
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let { width, height } = img;
+      if (width > REST_MAX_DIM || height > REST_MAX_DIM) {
+        if (width >= height) {
+          height = Math.round(height * (REST_MAX_DIM / width));
+          width = REST_MAX_DIM;
+        } else {
+          width = Math.round(width * (REST_MAX_DIM / height));
+          height = REST_MAX_DIM;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", REST_JPEG_QUALITY));
+    };
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("이미지를 불러올 수 없습니다.")); };
+    img.src = objectUrl;
+  });
+}
+
+async function addPendingImagesFromFiles(fileList){
+  const errorEl = document.getElementById("restaurant-form-error");
+  const files = Array.from(fileList || []).filter(f => f.type && f.type.startsWith("image/"));
+  if (files.length === 0) return;
+
+  for (const file of files) {
+    if (pendingRestaurantImages.length >= REST_MAX_IMAGES) {
+      errorEl.textContent = `사진은 최대 ${REST_MAX_IMAGES}장까지 첨부할 수 있습니다.`;
+      break;
+    }
+    let dataUrl;
+    try {
+      dataUrl = await compressImageFile(file);
+    } catch (e) {
+      console.error(e);
+      errorEl.textContent = "이미지를 불러오지 못했습니다. 다른 파일로 시도해보세요.";
+      continue;
+    }
+    const currentTotal = pendingRestaurantImages.reduce((sum, d) => sum + dataUrlBytes(d), 0);
+    if (currentTotal + dataUrlBytes(dataUrl) > REST_MAX_TOTAL_BYTES) {
+      errorEl.textContent = "사진 용량이 너무 큽니다. 사진 수를 줄이거나 더 작은 이미지로 시도해보세요.";
+      break;
+    }
+    pendingRestaurantImages.push(dataUrl);
+  }
+  renderImagePreviews();
+}
+
+function renderImagePreviews(){
+  const list = document.getElementById("rest-image-preview-list");
+  list.innerHTML = "";
+  pendingRestaurantImages.forEach((dataUrl, idx) => {
+    const item = document.createElement("div");
+    item.className = "image-preview-item";
+
+    const img = document.createElement("img");
+    img.src = dataUrl;
+    img.addEventListener("click", () => openLightbox(dataUrl));
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "remove-btn";
+    removeBtn.textContent = "×";
+    removeBtn.title = "사진 삭제";
+    removeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      pendingRestaurantImages.splice(idx, 1);
+      renderImagePreviews();
+    });
+
+    item.appendChild(img);
+    item.appendChild(removeBtn);
+    list.appendChild(item);
+  });
+}
+
+function initRestaurantImageInput(){
+  const dropzone = document.getElementById("rest-image-dropzone");
+  const fileInput = document.getElementById("rest-image-file-input");
+  const pickBtn = document.getElementById("rest-image-pick-btn");
+
+  pickBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => {
+    addPendingImagesFromFiles(e.target.files);
+    fileInput.value = "";
+  });
+
+  dropzone.addEventListener("click", (e) => {
+    if (e.target === pickBtn) return;
+    dropzone.focus();
+  });
+
+  dropzone.addEventListener("paste", (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    const files = [];
+    for (const item of items) {
+      if (item.kind === "file" && item.type && item.type.startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      addPendingImagesFromFiles(files);
+    }
+  });
+
+  dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    if (e.dataTransfer && e.dataTransfer.files) addPendingImagesFromFiles(e.dataTransfer.files);
+  });
+}
+
+/* ---- 사진 확대보기 ---- */
+function openLightbox(src){
+  document.getElementById("image-lightbox-img").src = src;
+  document.getElementById("image-lightbox-overlay").hidden = false;
+}
+function closeLightbox(){
+  document.getElementById("image-lightbox-overlay").hidden = true;
+  document.getElementById("image-lightbox-img").src = "";
+}
+
+/* ---- 초기화(탭 상호작용 연결) ---- */
+function initRestaurantsTab(){
+  document.getElementById("add-restaurant-btn").addEventListener("click", () => openRestaurantModal("add"));
+
+  document.getElementById("rest-filter-category").addEventListener("change", (e) => {
+    state.restaurantFilter.category = e.target.value;
+    renderRestaurants();
+  });
+  document.getElementById("rest-filter-location").addEventListener("change", (e) => {
+    state.restaurantFilter.location = e.target.value;
+    renderRestaurants();
+  });
+  document.getElementById("rest-filter-q").addEventListener("input", (e) => {
+    state.restaurantFilter.q = e.target.value;
+    renderRestaurants();
+  });
+  document.getElementById("rest-filter-reset").addEventListener("click", () => {
+    state.restaurantFilter = { category: "all", location: "all", q: "" };
+    document.getElementById("rest-filter-category").value = "all";
+    document.getElementById("rest-filter-location").value = "all";
+    document.getElementById("rest-filter-q").value = "";
+    renderRestaurants();
+  });
+
+  document.getElementById("restaurant-modal-cancel").addEventListener("click", closeRestaurantModal);
+  document.getElementById("restaurant-modal-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "restaurant-modal-overlay") closeRestaurantModal();
+  });
+  document.getElementById("restaurant-form").addEventListener("submit", onRestaurantFormSubmit);
+
+  initRestaurantImageInput();
+
+  document.getElementById("image-lightbox-overlay").addEventListener("click", closeLightbox);
+}
+
+/* ---- 렌더링 ---- */
+const restaurantStatusBanner = document.getElementById("restaurant-status-banner");
+const restaurantGrid = document.getElementById("restaurant-grid");
+
+function renderRestaurants(){
+  if (state.restaurantsFetchError) {
+    restaurantStatusBanner.textContent = state.restaurantsFetchError;
+    restaurantStatusBanner.hidden = false;
+    restaurantGrid.hidden = true;
+    return;
+  }
+  restaurantStatusBanner.hidden = true;
+  restaurantGrid.hidden = false;
+
+  const rows = getFilteredRestaurants();
+  restaurantGrid.innerHTML = "";
+
+  if (rows.length === 0) {
+    const div = document.createElement("div");
+    div.className = "empty-hint restaurant-empty";
+    div.textContent = state.restaurants.length > 0
+      ? "필터 조건에 맞는 식당이 없습니다."
+      : "등록된 식당이 없습니다. 위 '+ 식당 추가'로 회사 주변 맛집을 공유해보세요.";
+    restaurantGrid.appendChild(div);
+    return;
+  }
+
+  rows.forEach(r => restaurantGrid.appendChild(buildRestaurantCard(r)));
+}
+
+function buildRestaurantCard(r){
+  const card = document.createElement("div");
+  card.className = "restaurant-card";
+
+  const images = Array.isArray(r.images) ? r.images : [];
+  if (images.length > 0) {
+    const imgWrap = document.createElement("div");
+    imgWrap.className = "restaurant-card-images" + (images.length === 1 ? " single" : "");
+    images.slice(0, REST_MAX_IMAGES).forEach(src => {
+      const img = document.createElement("img");
+      img.src = src;
+      img.loading = "lazy";
+      img.addEventListener("click", () => openLightbox(src));
+      imgWrap.appendChild(img);
+    });
+    card.appendChild(imgWrap);
+  }
+
+  const body = document.createElement("div");
+  body.className = "restaurant-card-body";
+
+  const tags = document.createElement("div");
+  tags.className = "restaurant-card-tags";
+  const catTag = document.createElement("span");
+  catTag.className = "tag tag-category";
+  catTag.textContent = r.category || "기타";
+  const locTag = document.createElement("span");
+  locTag.className = "tag tag-location";
+  locTag.textContent = r.location || "기타";
+  tags.appendChild(catTag);
+  tags.appendChild(locTag);
+  body.appendChild(tags);
+
+  const name = document.createElement("div");
+  name.className = "restaurant-card-name";
+  name.textContent = r.name || "(이름 없음)";
+  body.appendChild(name);
+
+  if (r.memo) {
+    const memo = document.createElement("div");
+    memo.className = "restaurant-card-memo";
+    memo.textContent = r.memo;
+    body.appendChild(memo);
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "restaurant-card-meta";
+  const authorSpan = document.createElement("span");
+  authorSpan.textContent = r.author ? `작성자: ${r.author}` : "";
+  meta.appendChild(authorSpan);
+  const spacer = document.createElement("span");
+  spacer.className = "spacer";
+  meta.appendChild(spacer);
+  const editBtn = document.createElement("button");
+  editBtn.className = "icon-btn";
+  editBtn.textContent = "편집";
+  editBtn.addEventListener("click", () => openRestaurantModal("edit", r));
+  const delBtn = document.createElement("button");
+  delBtn.className = "icon-btn danger";
+  delBtn.textContent = "삭제";
+  delBtn.addEventListener("click", () => {
+    if (confirm(`"${r.name || "이 식당"}" 기록을 삭제할까요?`)) deleteRestaurant(r.id);
+  });
+  meta.appendChild(editBtn);
+  meta.appendChild(delBtn);
+  body.appendChild(meta);
+
+  card.appendChild(body);
+  return card;
+}
+
+/* ---- 추가/편집 모달 ---- */
+function openRestaurantModal(mode, r){
+  state.restaurantModalMode = mode;
+  state.restaurantEditingId = mode === "edit" && r ? r.id : null;
+  pendingRestaurantImages = mode === "edit" && r && Array.isArray(r.images) ? [...r.images] : [];
+
+  document.getElementById("restaurant-modal-title").textContent = mode === "edit" ? "식당 편집" : "식당 추가";
+  document.getElementById("restaurant-form-error").textContent = "";
+
+  const nameEl = document.getElementById("rest-input-name");
+  const categoryEl = document.getElementById("rest-input-category");
+  const locationEl = document.getElementById("rest-input-location");
+  const memoEl = document.getElementById("rest-input-memo");
+  const authorEl = document.getElementById("rest-input-author");
+
+  if (mode === "edit" && r) {
+    nameEl.value = r.name || "";
+    categoryEl.value = r.category || "한식";
+    locationEl.value = r.location || "방이";
+    memoEl.value = r.memo || "";
+    authorEl.value = r.author || "";
+  } else {
+    nameEl.value = "";
+    categoryEl.value = "한식";
+    locationEl.value = "방이";
+    memoEl.value = "";
+    authorEl.value = "";
+  }
+
+  renderImagePreviews();
+  document.getElementById("restaurant-modal-overlay").hidden = false;
+  nameEl.focus();
+}
+
+function closeRestaurantModal(){
+  document.getElementById("restaurant-modal-overlay").hidden = true;
+  state.restaurantModalMode = null;
+  state.restaurantEditingId = null;
+  pendingRestaurantImages = [];
+}
+
+async function onRestaurantFormSubmit(e){
+  e.preventDefault();
+  const errorEl = document.getElementById("restaurant-form-error");
+  errorEl.textContent = "";
+
+  const name = document.getElementById("rest-input-name").value.trim();
+  const category = document.getElementById("rest-input-category").value;
+  const location = document.getElementById("rest-input-location").value;
+  const memo = document.getElementById("rest-input-memo").value.trim();
+  const author = document.getElementById("rest-input-author").value.trim();
+
+  if (!name) { errorEl.textContent = "식당명을 입력하세요."; return; }
+
+  const saveBtn = document.querySelector('#restaurant-form button[type="submit"]');
+  saveBtn.disabled = true;
+  try {
+    const data = { name, category, location, memo, author, images: [...pendingRestaurantImages] };
+    if (state.restaurantModalMode === "edit" && state.restaurantEditingId) {
+      await updateRestaurant(state.restaurantEditingId, data);
+    } else {
+      await addRestaurant(data);
+    }
+    closeRestaurantModal();
   } catch (err) {
     console.error(err);
     errorEl.textContent = "저장 중 오류가 발생했습니다: " + err.message;

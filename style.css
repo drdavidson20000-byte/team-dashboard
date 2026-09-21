@@ -737,3 +737,155 @@ header.topbar .right{
 .perf-table.hide-aux [data-colgrp="aux"]{
   display:none;
 }
+
+/* ---------- 식당 탭 ---------- */
+.restaurant-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
+  gap:16px;
+}
+.restaurant-card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+.restaurant-card-images{
+  display:grid;
+  grid-template-columns:repeat(2, 1fr);
+  gap:2px;
+  background:var(--border);
+}
+.restaurant-card-images.single{ grid-template-columns:1fr; }
+.restaurant-card-images img{
+  width:100%;
+  height:120px;
+  object-fit:cover;
+  cursor:zoom-in;
+  display:block;
+  background:#eee;
+}
+.restaurant-card-images.single img{ height:180px; }
+.restaurant-card-body{
+  padding:14px 16px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  flex:1;
+}
+.restaurant-card-tags{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.tag{
+  font-size:11px;
+  font-weight:700;
+  padding:3px 9px;
+  border-radius:20px;
+  white-space:nowrap;
+}
+.tag-category{ background:var(--accent-dim); color:var(--accent); }
+.tag-location{ background:#fdf3e2; color:#a8681c; }
+.restaurant-card-name{
+  font-size:15px;
+  font-weight:700;
+}
+.restaurant-card-memo{
+  font-size:13px;
+  line-height:1.55;
+  color:var(--text);
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.restaurant-card-meta{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:11.5px;
+  color:var(--text-dim);
+  margin-top:auto;
+  padding-top:6px;
+  border-top:1px solid var(--border);
+}
+.restaurant-card-meta .spacer{ flex:1; }
+.restaurant-empty{ grid-column:1/-1; }
+
+/* 사진 붙여넣기/드래그 영역 */
+.image-dropzone{
+  border:1.5px dashed var(--border);
+  border-radius:10px;
+  padding:16px;
+  text-align:center;
+  font-size:12.5px;
+  color:var(--text-dim);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+  cursor:text;
+}
+.image-dropzone:focus{
+  outline:none;
+  border-color:var(--accent);
+  background:var(--accent-dim);
+}
+.image-dropzone.dragover{
+  border-color:var(--accent);
+  background:var(--accent-dim);
+  color:var(--accent);
+}
+.image-preview-list{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:10px;
+}
+.image-preview-item{
+  position:relative;
+  width:72px;
+  height:72px;
+  border-radius:8px;
+  overflow:hidden;
+  border:1px solid var(--border);
+}
+.image-preview-item img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+.image-preview-item .remove-btn{
+  position:absolute;
+  top:2px;
+  right:2px;
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  background:rgba(0,0,0,0.55);
+  color:#fff;
+  font-size:11px;
+  line-height:18px;
+  text-align:center;
+  padding:0;
+}
+.image-upload-hint{
+  font-size:11.5px;
+  color:var(--text-dim);
+  margin-top:4px;
+}
+
+/* 사진 확대보기 */
+.lightbox-overlay{
+  background:rgba(10,11,13,0.82);
+  cursor:zoom-out;
+}
+.lightbox-overlay img{
+  max-width:92vw;
+  max-height:92vh;
+  border-radius:8px;
+  box-shadow:0 4px 30px rgba(0,0,0,0.4);
+}
