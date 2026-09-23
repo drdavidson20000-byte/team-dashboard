@@ -409,25 +409,37 @@
 
     <!-- ===================== TAB: 운영체크리스트 ===================== -->
     <div class="tab-panel" id="tab-panel-checklist" hidden>
-      <div class="checklist-project-bar" id="checklist-project-bar"></div>
+      <div class="checklist-sticky-head" id="checklist-sticky-head">
+        <div class="checklist-project-bar" id="checklist-project-bar"></div>
 
-      <div id="checklist-empty-hint" class="empty-hint" hidden>
-        운영 프로젝트가 없습니다. 위 "+ 새 프로젝트"로 먼저 프로젝트를 만들어주세요
-        (예: 글로벌비즈니스어워드, 타운홀 행사 등 운영 행사/업무 단위로 하나씩 만들면 됩니다).
-      </div>
-
-      <div id="checklist-project-body" hidden>
-        <div class="toolbar-row">
-          <button class="add-l1-btn" id="add-checklist-item-btn">+ 항목 추가</button>
-          <div class="toolbar-row-right">
-            <input type="file" id="checklist-excel-input" accept=".xlsx,.xls,.csv" hidden>
-            <button class="export-btn" id="checklist-excel-upload-btn">⇧ 엑셀로 항목 추가</button>
-            <button class="icon-btn danger" id="checklist-clear-btn">전체 항목 삭제</button>
-          </div>
+        <div id="checklist-empty-hint" class="empty-hint" hidden>
+          운영 프로젝트가 없습니다. 위 "+ 새 프로젝트"로 먼저 프로젝트를 만들어주세요
+          (예: 글로벌비즈니스어워드, 타운홀 행사 등 운영 행사/업무 단위로 하나씩 만들면 됩니다).
         </div>
 
-        <div id="checklist-status-banner" class="empty-hint" hidden></div>
+        <div id="checklist-project-toolbar" hidden>
+          <div class="toolbar-row">
+            <button class="add-l1-btn" id="add-checklist-item-btn">+ 항목 추가</button>
+            <div class="toolbar-row-right">
+              <input type="file" id="checklist-excel-input" accept=".xlsx,.xls,.csv" hidden>
+              <button class="export-btn" id="checklist-excel-upload-btn">⇧ 엑셀로 항목 추가</button>
+              <button class="icon-btn danger" id="checklist-clear-btn">전체 항목 삭제</button>
+            </div>
+          </div>
 
+          <div class="checklist-memo-box">
+            <div class="checklist-memo-label">
+              <span>📝 메모</span>
+              <span class="checklist-memo-status" id="checklist-memo-status"></span>
+            </div>
+            <textarea id="checklist-memo-textarea" class="checklist-memo-textarea" placeholder="이 프로젝트에 대해 자유롭게 메모를 남겨보세요. 저장한 내용은 팀원 전체와 실시간으로 공유됩니다."></textarea>
+          </div>
+
+          <div id="checklist-status-banner" class="empty-hint" hidden></div>
+        </div>
+      </div>
+
+      <div id="checklist-project-table-wrap" hidden>
         <div class="table-wrap" id="checklist-table-wrap">
           <table class="report-table checklist-table" id="checklist-table">
             <thead>

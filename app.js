@@ -1392,8 +1392,11 @@ function subscribeChecklistProjects(){
 }
 
 async function addChecklistProject(name){
-  const ref = await addDoc(collection(db, "checklistProjects"), { name, createdAt: serverTimestamp() });
+  const ref = await addDoc(collection(db, "checklistProjects"), { name, memo: "", createdAt: serverTimestamp() });
   return ref.id;
+}
+async function updateChecklistProjectMemo(id, memo){
+  await updateDoc(doc(db, "checklistProjects", id), { memo, memoUpdatedAt: serverTimestamp() });
 }
 async function deleteChecklistProject(id){
   // 이 프로젝트 소속 항목을 전부 먼저 지운 뒤 프로젝트 문서를 지웁니다(연쇄 삭제).
@@ -1591,6 +1594,50 @@ function initChecklistTab(){
   document.getElementById("checklist-item-form").addEventListener("submit", onChecklistItemFormSubmit);
 
   initChecklistExcelUpload();
+  initChecklistMemo();
+}
+
+/* ---- 프로젝트 메모장: 입력 후 잠시 멈추면 자동 저장, blur 시 즉시 저장 ---- */
+function initChecklistMemo(){
+  const textarea = document.getElementById("checklist-memo-textarea");
+  const status = document.getElementById("checklist-memo-status");
+  let saveTimer = null;
+  let statusResetTimer = null;
+
+  function flashStatus(text, autoClear){
+    status.textContent = text;
+    clearTimeout(statusResetTimer);
+    if (autoClear) {
+      statusResetTimer = setTimeout(() => {
+        if (status.textContent === text) status.textContent = "";
+      }, 1500);
+    }
+  }
+
+  async function saveMemoNow(){
+    const projectId = state.checklistActiveProjectId;
+    if (!projectId) return;
+    try {
+      await updateChecklistProjectMemo(projectId, textarea.value);
+      flashStatus("저장됨", true);
+    } catch (err) {
+      console.error("메모 저장 오류", err);
+      flashStatus("저장 실패", false);
+    }
+  }
+
+  textarea.addEventListener("input", () => {
+    if (!state.checklistActiveProjectId) return;
+    flashStatus("저장 중...", false);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveMemoNow, 700);
+  });
+
+  textarea.addEventListener("blur", () => {
+    if (!state.checklistActiveProjectId) return;
+    clearTimeout(saveTimer);
+    saveMemoNow();
+  });
 }
 
 /* ---- 렌더링: 프로젝트 칩 목록 ---- */
@@ -1637,13 +1684,25 @@ function renderChecklistProjectBar(){
   bar.appendChild(addBtn);
 
   const emptyHint = document.getElementById("checklist-empty-hint");
-  const body = document.getElementById("checklist-project-body");
+  const toolbar = document.getElementById("checklist-project-toolbar");
+  const tableOuterWrap = document.getElementById("checklist-project-table-wrap");
   if (state.checklistProjects.length === 0) {
     emptyHint.hidden = false;
-    body.hidden = true;
+    toolbar.hidden = true;
+    tableOuterWrap.hidden = true;
   } else {
     emptyHint.hidden = true;
-    body.hidden = !state.checklistActiveProjectId;
+    const show = !!state.checklistActiveProjectId;
+    toolbar.hidden = !show;
+    tableOuterWrap.hidden = !show;
+  }
+
+  // 메모 textarea는 현재 선택된 프로젝트의 값으로 채우되, 사용자가 지금 그 칸에
+  // 입력 중이면(포커스 상태) 실시간 구독 갱신으로 타이핑 중인 내용을 덮어쓰지 않습니다.
+  const memoTextarea = document.getElementById("checklist-memo-textarea");
+  if (memoTextarea && document.activeElement !== memoTextarea) {
+    const activeProject = state.checklistProjects.find(p => p.id === state.checklistActiveProjectId);
+    memoTextarea.value = (activeProject && activeProject.memo) || "";
   }
 }
 

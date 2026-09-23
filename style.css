@@ -967,3 +967,63 @@ header.topbar .right{
   color:var(--text-dim);
   text-decoration:line-through;
 }
+
+/* ---- 운영체크리스트: 상단 고정(freeze) 영역 ----
+   프로젝트 칩 / 툴바 / 메모장까지는 스크롤해도 화면 위에 고정되고,
+   그 아래 표(checklist-project-table-wrap)만 스크롤됩니다. */
+.checklist-sticky-head{
+  position:sticky;
+  top:0;
+  z-index:8;
+  background:var(--bg);
+  padding-top:2px;
+  padding-bottom:14px;
+  margin-bottom:-4px;
+  box-shadow:0 6px 10px -8px rgba(0,0,0,0.18);
+}
+.checklist-project-bar{ padding-top:2px; }
+#checklist-project-toolbar .toolbar-row{ margin-bottom:12px; }
+
+.checklist-memo-box{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:10px 14px 12px;
+  margin-bottom:12px;
+  box-shadow:var(--shadow);
+}
+.checklist-memo-label{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--text-dim);
+  margin-bottom:6px;
+}
+.checklist-memo-status{
+  font-weight:500;
+  color:var(--accent);
+  font-size:12px;
+}
+.checklist-memo-textarea{
+  width:100%;
+  min-height:64px;
+  max-height:220px;
+  resize:vertical;
+  border:1px solid transparent;
+  border-radius:8px;
+  padding:6px 8px;
+  font-size:13.5px;
+  line-height:1.6;
+  color:var(--text);
+  background:transparent;
+}
+.checklist-memo-textarea:focus{
+  outline:none;
+  border-color:var(--border);
+  background:var(--bg);
+}
+.checklist-memo-textarea::placeholder{ color:#a7abb4; }
+
+#checklist-project-table-wrap{ padding-top:4px; }
