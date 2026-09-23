@@ -59,7 +59,7 @@ const state = {
   fetchError: null,
 
   // ---- 지시사항 탭 ----
-  activeMainTab: "weekly",     // "weekly" | "directives" | "performance" | "restaurants"
+  activeMainTab: "weekly",     // "weekly" | "directives" | "performance" | "restaurants" | "checklist"
   directives: [],              // [{id, instructionDate, dueDate, content, team, assignee, status, createdAt}]
   directivesFetchError: null,
   directivesFilter: { team: "all", status: "all", q: "" },
@@ -73,11 +73,21 @@ const state = {
   restaurantFilter: { category: "all", location: "all", q: "" },
   restaurantModalMode: null,   // "add" | "edit" | null
   restaurantEditingId: null,
+
+  // ---- 운영체크리스트 탭 ----
+  checklistProjects: [],       // [{id, name, createdAt}]
+  checklistActiveProjectId: null,
+  checklistItems: [],          // 현재 선택된 프로젝트의 항목들 [{id, projectId, category, no, item, content, note, done, assignee, createdAt}]
+  checklistItemsFetchError: null,
+  checklistItemModalMode: null, // "add" | "edit" | null
+  checklistItemEditingId: null,
 };
 
 let unsubL1 = null, unsubL2 = null, unsubL3 = null;
 let unsubDirectives = null;
 let unsubRestaurants = null;
+let unsubChecklistProjects = null;
+let unsubChecklistItems = null;
 let pendingRestaurantImages = []; // 식당 추가/편집 폼이 열려 있는 동안만 쓰는 임시 사진 목록(dataURL)
 
 /* =====================================================================
@@ -158,6 +168,9 @@ onAuthStateChanged(auth, (user) => {
     state.l1 = []; state.l2 = []; state.l3 = [];
     state.directives = [];
     state.restaurants = [];
+    state.checklistProjects = [];
+    state.checklistItems = [];
+    state.checklistActiveProjectId = null;
   }
 });
 
@@ -171,6 +184,8 @@ function unsubscribeAll(){
   unsubscribeWeeklyListeners();
   if (unsubDirectives) { unsubDirectives(); unsubDirectives = null; }
   if (unsubRestaurants) { unsubRestaurants(); unsubRestaurants = null; }
+  if (unsubChecklistProjects) { unsubChecklistProjects(); unsubChecklistProjects = null; }
+  if (unsubChecklistItems) { unsubChecklistItems(); unsubChecklistItems = null; }
 }
 
 /* =====================================================================
@@ -209,6 +224,8 @@ function initApp(){
   initPerformanceTab();
   initRestaurantsTab();
   subscribeRestaurants();
+  initChecklistTab();
+  subscribeChecklistProjects();
 }
 
 /* =====================================================================
@@ -297,6 +314,7 @@ function initMainTabs(){
       document.getElementById("tab-panel-directives").hidden = target !== "directives";
       document.getElementById("tab-panel-performance").hidden = target !== "performance";
       document.getElementById("tab-panel-restaurants").hidden = target !== "restaurants";
+      document.getElementById("tab-panel-checklist").hidden = target !== "checklist";
     });
   });
 }
@@ -1331,6 +1349,496 @@ async function onRestaurantFormSubmit(e){
       await addRestaurant(data);
     }
     closeRestaurantModal();
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = "저장 중 오류가 발생했습니다: " + err.message;
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+/* =====================================================================
+   운영체크리스트 탭 — "운영 프로젝트"(글로벌비즈니스어워드, 타운홀 행사 등)를
+   여러 개 만들 수 있고, 프로젝트마다 구분/번호/항목/내용/비고로 이루어진
+   체크리스트를 가집니다. 완료 체크박스와 담당자는 표에서 바로 편집하고,
+   구분/번호/항목/내용/비고 다섯 칸은 엑셀 업로드로 한 번에 채워 넣거나
+   "+ 항목 추가"로 한 줄씩 넣을 수 있습니다.
+   ===================================================================== */
+
+/* ---- 프로젝트(checklistProjects) ---- */
+function subscribeChecklistProjects(){
+  const q = query(collection(db, "checklistProjects"));
+  unsubChecklistProjects = onSnapshot(q, snap => {
+    state.checklistProjects = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    // 지금 선택된 프로젝트가 삭제되었거나, 아직 아무것도 선택 안 한 상태면
+    // 첫 번째 프로젝트를 자동으로 선택합니다.
+    const stillExists = state.checklistProjects.some(p => p.id === state.checklistActiveProjectId);
+    if (!stillExists) {
+      const next = state.checklistProjects[0];
+      if (next) {
+        selectChecklistProject(next.id);
+      } else {
+        state.checklistActiveProjectId = null;
+        renderChecklistProjectBar();
+      }
+    } else {
+      renderChecklistProjectBar();
+    }
+  }, (err) => {
+    console.error("checklistProjects 구독 오류", err);
+    state.checklistProjects = [];
+    renderChecklistProjectBar();
+  });
+}
+
+async function addChecklistProject(name){
+  const ref = await addDoc(collection(db, "checklistProjects"), { name, createdAt: serverTimestamp() });
+  return ref.id;
+}
+async function deleteChecklistProject(id){
+  // 이 프로젝트 소속 항목을 전부 먼저 지운 뒤 프로젝트 문서를 지웁니다(연쇄 삭제).
+  const snap = await getDocs(query(collection(db, "checklistItems"), where("projectId", "==", id)));
+  for (const d of snap.docs) await deleteDoc(doc(db, "checklistItems", d.id));
+  await deleteDoc(doc(db, "checklistProjects", id));
+}
+
+function selectChecklistProject(id){
+  if (state.checklistActiveProjectId === id) return;
+  state.checklistActiveProjectId = id;
+  state.checklistItems = [];
+  state.checklistItemsFetchError = null;
+  if (unsubChecklistItems) { unsubChecklistItems(); unsubChecklistItems = null; }
+  renderChecklistProjectBar();
+  if (id) {
+    subscribeChecklistItems(id);
+  } else {
+    renderChecklistTable();
+  }
+}
+
+/* ---- 항목(checklistItems) ---- */
+function subscribeChecklistItems(projectId){
+  const q = query(collection(db, "checklistItems"), where("projectId", "==", projectId));
+  unsubChecklistItems = onSnapshot(q, snap => {
+    state.checklistItems = sortByCreatedAt(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    state.checklistItemsFetchError = null;
+    renderChecklistTable();
+  }, (err) => {
+    console.error("checklistItems 구독 오류", err);
+    state.checklistItemsFetchError = "Firestore 연결에 실패했습니다. firebase-config.js 값과 firestore.rules 배포 상태를 확인하세요.";
+    renderChecklistTable();
+  });
+}
+
+async function addChecklistItem(projectId, data){
+  await addDoc(collection(db, "checklistItems"), {
+    projectId,
+    category: data.category || "",
+    no: data.no || "",
+    item: data.item || "",
+    content: data.content || "",
+    note: data.note || "",
+    done: !!data.done,
+    assignee: data.assignee || "",
+    createdAt: serverTimestamp(),
+  });
+}
+async function updateChecklistItem(id, data){
+  await updateDoc(doc(db, "checklistItems", id), data);
+}
+async function deleteChecklistItem(id){
+  await deleteDoc(doc(db, "checklistItems", id));
+}
+async function clearChecklistItems(projectId){
+  const snap = await getDocs(query(collection(db, "checklistItems"), where("projectId", "==", projectId)));
+  for (const d of snap.docs) await deleteDoc(doc(db, "checklistItems", d.id));
+}
+
+/* ---- 엑셀 업로드 (구분/번호/항목/내용/비고 열을 찾아서 읽습니다) ---- */
+const CHECKLIST_EXCEL_HEADERS = { category: "구분", no: "번호", item: "항목", content: "내용", note: "비고" };
+
+function readChecklistExcelFile(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+        resolve(rows);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("파일을 읽을 수 없습니다."));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/* 엑셀 원본 2차원 배열 → {category, no, item, content, note} 목록.
+   - 헤더 행은 위쪽 10줄 안에서 "구분/번호/항목/내용/비고" 중 4개 이상이 보이는 줄로 찾습니다
+     (열 순서가 스크린샷과 달라도 제목으로 찾으므로 상관없습니다).
+   - 엑셀에서 구분/항목 칸이 병합되어 있으면 병합된 칸 중 첫 줄에만 값이 들어오고
+     나머지는 빈 칸으로 읽히므로, 빈 칸은 바로 위 줄의 값을 그대로 이어받습니다. */
+function mapChecklistExcelRows(rows){
+  let headerRowIdx = -1;
+  let colIdx = {};
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const row = (rows[i] || []).map(c => String(c === undefined || c === null ? "" : c).trim());
+    const found = {};
+    Object.entries(CHECKLIST_EXCEL_HEADERS).forEach(([key, label]) => {
+      const idx = row.indexOf(label);
+      if (idx >= 0) found[key] = idx;
+    });
+    if (Object.keys(found).length >= 4) {
+      headerRowIdx = i;
+      colIdx = found;
+      break;
+    }
+  }
+  if (headerRowIdx === -1) {
+    throw new Error("엑셀에서 '구분/번호/항목/내용/비고' 열 제목을 찾지 못했습니다. 첫 줄(또는 상단 몇 줄 안)에 이 제목들이 그대로 있는지 확인해주세요.");
+  }
+
+  const items = [];
+  let lastCategory = "", lastItem = "";
+  for (let i = headerRowIdx + 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const get = (key) => {
+      const idx = colIdx[key];
+      if (idx === undefined) return "";
+      const v = row[idx];
+      return v === undefined || v === null ? "" : String(v).trim();
+    };
+    let category = get("category");
+    let item = get("item");
+    const no = get("no");
+    const content = get("content");
+    const note = get("note");
+
+    if (!category && !item && !no && !content && !note) continue; // 완전히 빈 줄은 건너뜁니다
+
+    if (!category) category = lastCategory; else lastCategory = category;
+    if (!item) item = lastItem; else lastItem = item;
+
+    items.push({ category, no, item, content, note });
+  }
+  return items;
+}
+
+function initChecklistExcelUpload(){
+  const btn = document.getElementById("checklist-excel-upload-btn");
+  const input = document.getElementById("checklist-excel-input");
+
+  btn.addEventListener("click", () => {
+    if (!state.checklistActiveProjectId) return;
+    input.click();
+  });
+
+  input.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    input.value = "";
+    if (!file || !state.checklistActiveProjectId) return;
+
+    try {
+      const rows = await readChecklistExcelFile(file);
+      const items = mapChecklistExcelRows(rows);
+      if (items.length === 0) {
+        alert("엑셀에서 가져올 내용을 찾지 못했습니다.");
+        return;
+      }
+      const ok = confirm(
+        `${items.length}개 항목을 현재 프로젝트에 추가할까요?\n\n` +
+        `기존에 있던 항목(완료 체크, 담당자 포함)은 그대로 남아있고, 새 항목이 뒤에 추가됩니다.\n` +
+        `(다시 처음부터 올리고 싶다면 "전체 항목 삭제"를 먼저 눌러주세요.)`
+      );
+      if (!ok) return;
+
+      btn.disabled = true;
+      for (const it of items) {
+        await addChecklistItem(state.checklistActiveProjectId, {
+          category: it.category, no: it.no, item: it.item, content: it.content, note: it.note,
+          done: false, assignee: "",
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      alert("엑셀을 불러오는 중 오류가 발생했습니다: " + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+/* ---- 초기화(탭 상호작용 연결) ---- */
+function initChecklistTab(){
+  document.getElementById("add-checklist-item-btn").addEventListener("click", () => {
+    if (!state.checklistActiveProjectId) { alert("먼저 프로젝트를 선택하거나 새로 만들어주세요."); return; }
+    openChecklistItemModal("add");
+  });
+
+  document.getElementById("checklist-clear-btn").addEventListener("click", async () => {
+    if (!state.checklistActiveProjectId) return;
+    if (!confirm("현재 프로젝트의 모든 체크리스트 항목을 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;
+    await clearChecklistItems(state.checklistActiveProjectId);
+  });
+
+  document.getElementById("checklist-item-modal-cancel").addEventListener("click", closeChecklistItemModal);
+  document.getElementById("checklist-item-modal-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "checklist-item-modal-overlay") closeChecklistItemModal();
+  });
+  document.getElementById("checklist-item-form").addEventListener("submit", onChecklistItemFormSubmit);
+
+  initChecklistExcelUpload();
+}
+
+/* ---- 렌더링: 프로젝트 칩 목록 ---- */
+function renderChecklistProjectBar(){
+  const bar = document.getElementById("checklist-project-bar");
+  bar.innerHTML = "";
+
+  state.checklistProjects.forEach(p => {
+    const chip = document.createElement("div");
+    chip.className = "checklist-project-chip" + (p.id === state.checklistActiveProjectId ? " active" : "");
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "chip-name";
+    nameSpan.textContent = p.name;
+    nameSpan.addEventListener("click", () => selectChecklistProject(p.id));
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "chip-del";
+    delBtn.textContent = "×";
+    delBtn.title = "프로젝트 삭제";
+    delBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`"${p.name}" 프로젝트와 그 안의 모든 체크리스트 항목을 삭제할까요?`)) return;
+      await deleteChecklistProject(p.id);
+    });
+
+    chip.appendChild(nameSpan);
+    chip.appendChild(delBtn);
+    bar.appendChild(chip);
+  });
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "add-project-chip";
+  addBtn.textContent = "+ 새 프로젝트";
+  addBtn.addEventListener("click", async () => {
+    const name = prompt("새 운영 프로젝트명 (예: 글로벌비즈니스어워드)");
+    if (name && name.trim()) {
+      const id = await addChecklistProject(name.trim());
+      selectChecklistProject(id);
+    }
+  });
+  bar.appendChild(addBtn);
+
+  const emptyHint = document.getElementById("checklist-empty-hint");
+  const body = document.getElementById("checklist-project-body");
+  if (state.checklistProjects.length === 0) {
+    emptyHint.hidden = false;
+    body.hidden = true;
+  } else {
+    emptyHint.hidden = true;
+    body.hidden = !state.checklistActiveProjectId;
+  }
+}
+
+/* ---- 렌더링: 체크리스트 표 (구분/항목은 연속된 같은 값끼리 세로 병합) ---- */
+function computeChecklistRowSpans(items){
+  return items.map((it, idx) => {
+    const prev = items[idx - 1];
+    const catIsFirst = !prev || prev.category !== it.category;
+    const itemIsFirst = !prev || prev.category !== it.category || prev.item !== it.item;
+    let catSpan = 0, itemSpan = 0;
+    if (catIsFirst) {
+      catSpan = 1;
+      for (let j = idx + 1; j < items.length && items[j].category === it.category; j++) catSpan++;
+    }
+    if (itemIsFirst) {
+      itemSpan = 1;
+      for (let j = idx + 1; j < items.length && items[j].category === it.category && items[j].item === it.item; j++) itemSpan++;
+    }
+    return { ...it, _catIsFirst: catIsFirst, _catSpan: catSpan, _itemIsFirst: itemIsFirst, _itemSpan: itemSpan };
+  });
+}
+
+function renderChecklistTable(){
+  const banner = document.getElementById("checklist-status-banner");
+  const tableWrap = document.getElementById("checklist-table-wrap");
+  const tbody = document.getElementById("checklist-tbody");
+
+  if (state.checklistItemsFetchError) {
+    banner.textContent = state.checklistItemsFetchError;
+    banner.hidden = false;
+    tableWrap.hidden = true;
+    return;
+  }
+  banner.hidden = true;
+  tableWrap.hidden = false;
+  tbody.innerHTML = "";
+
+  if (state.checklistItems.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 8;
+    td.appendChild(emptyHint("등록된 항목이 없습니다. 위 '+ 항목 추가'로 한 줄씩 넣거나, '엑셀로 항목 추가'로 한 번에 불러오세요."));
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  const grouped = computeChecklistRowSpans(state.checklistItems);
+
+  grouped.forEach(it => {
+    const tr = document.createElement("tr");
+    if (it.done) tr.classList.add("cl-done-row");
+
+    if (it._catIsFirst) {
+      const td = document.createElement("td");
+      td.className = "cl-category-cell";
+      if (it._catSpan > 1) td.rowSpan = it._catSpan;
+      td.textContent = it.category || "-";
+      tr.appendChild(td);
+    }
+
+    const tdNo = document.createElement("td");
+    tdNo.className = "cl-no-cell";
+    tdNo.textContent = it.no || "";
+    tr.appendChild(tdNo);
+
+    if (it._itemIsFirst) {
+      const td = document.createElement("td");
+      td.className = "cl-item-cell";
+      if (it._itemSpan > 1) td.rowSpan = it._itemSpan;
+      td.textContent = it.item || "-";
+      tr.appendChild(td);
+    }
+
+    const tdContent = document.createElement("td");
+    tdContent.className = "cl-content-cell";
+    tdContent.textContent = it.content || "";
+    tr.appendChild(tdContent);
+
+    const tdNote = document.createElement("td");
+    tdNote.className = "cl-note-cell";
+    tdNote.textContent = it.note || "";
+    tr.appendChild(tdNote);
+
+    const tdDone = document.createElement("td");
+    tdDone.className = "cl-done-cell";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = !!it.done;
+    checkbox.addEventListener("change", () => updateChecklistItem(it.id, { done: checkbox.checked }));
+    tdDone.appendChild(checkbox);
+    tr.appendChild(tdDone);
+
+    const tdAssignee = document.createElement("td");
+    tdAssignee.className = "cl-assignee-cell";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "assignee-input";
+    input.placeholder = "담당자";
+    input.value = it.assignee || "";
+    const commit = () => {
+      const val = input.value.trim();
+      if (val !== (it.assignee || "")) updateChecklistItem(it.id, { assignee: val });
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+    tdAssignee.appendChild(input);
+    tr.appendChild(tdAssignee);
+
+    const tdActions = document.createElement("td");
+    tdActions.className = "cl-actions-cell";
+    const editBtn = document.createElement("button");
+    editBtn.className = "icon-btn";
+    editBtn.textContent = "편집";
+    editBtn.addEventListener("click", () => openChecklistItemModal("edit", it));
+    const delBtn = document.createElement("button");
+    delBtn.className = "icon-btn danger";
+    delBtn.textContent = "삭제";
+    delBtn.addEventListener("click", () => {
+      if (confirm("이 항목을 삭제할까요?")) deleteChecklistItem(it.id);
+    });
+    tdActions.appendChild(editBtn);
+    tdActions.appendChild(delBtn);
+    tr.appendChild(tdActions);
+
+    tbody.appendChild(tr);
+  });
+}
+
+/* ---- 추가/편집 모달 (구분/번호/항목/내용/비고/담당자 — 완료 체크는 표에서 바로 토글) ---- */
+function openChecklistItemModal(mode, it){
+  state.checklistItemModalMode = mode;
+  state.checklistItemEditingId = mode === "edit" && it ? it.id : null;
+
+  document.getElementById("checklist-item-modal-title").textContent = mode === "edit" ? "항목 편집" : "항목 추가";
+  document.getElementById("checklist-item-form-error").textContent = "";
+
+  const categoryEl = document.getElementById("ci-input-category");
+  const noEl = document.getElementById("ci-input-no");
+  const itemEl = document.getElementById("ci-input-item");
+  const contentEl = document.getElementById("ci-input-content");
+  const noteEl = document.getElementById("ci-input-note");
+  const assigneeEl = document.getElementById("ci-input-assignee");
+
+  if (mode === "edit" && it) {
+    categoryEl.value = it.category || "";
+    noEl.value = it.no || "";
+    itemEl.value = it.item || "";
+    contentEl.value = it.content || "";
+    noteEl.value = it.note || "";
+    assigneeEl.value = it.assignee || "";
+  } else {
+    categoryEl.value = "";
+    noEl.value = "";
+    itemEl.value = "";
+    contentEl.value = "";
+    noteEl.value = "";
+    assigneeEl.value = "";
+  }
+
+  document.getElementById("checklist-item-modal-overlay").hidden = false;
+  categoryEl.focus();
+}
+function closeChecklistItemModal(){
+  document.getElementById("checklist-item-modal-overlay").hidden = true;
+  state.checklistItemModalMode = null;
+  state.checklistItemEditingId = null;
+}
+
+async function onChecklistItemFormSubmit(e){
+  e.preventDefault();
+  const errorEl = document.getElementById("checklist-item-form-error");
+  errorEl.textContent = "";
+
+  const category = document.getElementById("ci-input-category").value.trim();
+  const no = document.getElementById("ci-input-no").value.trim();
+  const item = document.getElementById("ci-input-item").value.trim();
+  const content = document.getElementById("ci-input-content").value.trim();
+  const note = document.getElementById("ci-input-note").value.trim();
+  const assignee = document.getElementById("ci-input-assignee").value.trim();
+
+  if (!category) { errorEl.textContent = "구분을 입력하세요."; return; }
+  if (!item) { errorEl.textContent = "항목을 입력하세요."; return; }
+  if (!content) { errorEl.textContent = "내용을 입력하세요."; return; }
+  if (!state.checklistActiveProjectId) { errorEl.textContent = "프로젝트를 먼저 선택하세요."; return; }
+
+  const saveBtn = document.querySelector('#checklist-item-form button[type="submit"]');
+  saveBtn.disabled = true;
+  try {
+    if (state.checklistItemModalMode === "edit" && state.checklistItemEditingId) {
+      await updateChecklistItem(state.checklistItemEditingId, { category, no, item, content, note, assignee });
+    } else {
+      await addChecklistItem(state.checklistActiveProjectId, { category, no, item, content, note, assignee, done: false });
+    }
+    closeChecklistItemModal();
   } catch (err) {
     console.error(err);
     errorEl.textContent = "저장 중 오류가 발생했습니다: " + err.message;

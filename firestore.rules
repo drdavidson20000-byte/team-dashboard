@@ -19,5 +19,11 @@ service cloud.firestore {
     match /restaurants/{docId} {
       allow read, write: if request.auth != null;
     }
+    match /checklistProjects/{docId} {
+      allow read, write: if request.auth != null;
+    }
+    match /checklistItems/{docId} {
+      allow read, write: if request.auth != null;
+    }
   }
 }

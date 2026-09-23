@@ -43,6 +43,7 @@
     <div class="main-tab" data-tab="directives">지시사항</div>
     <div class="main-tab" data-tab="performance">성과관리</div>
     <div class="main-tab" data-tab="restaurants">식당</div>
+    <div class="main-tab" data-tab="checklist">운영체크리스트</div>
   </nav>
 
   <div class="content-wrap">
@@ -406,6 +407,47 @@
       <div class="restaurant-grid" id="restaurant-grid"></div>
     </div>
 
+    <!-- ===================== TAB: 운영체크리스트 ===================== -->
+    <div class="tab-panel" id="tab-panel-checklist" hidden>
+      <div class="checklist-project-bar" id="checklist-project-bar"></div>
+
+      <div id="checklist-empty-hint" class="empty-hint" hidden>
+        운영 프로젝트가 없습니다. 위 "+ 새 프로젝트"로 먼저 프로젝트를 만들어주세요
+        (예: 글로벌비즈니스어워드, 타운홀 행사 등 운영 행사/업무 단위로 하나씩 만들면 됩니다).
+      </div>
+
+      <div id="checklist-project-body" hidden>
+        <div class="toolbar-row">
+          <button class="add-l1-btn" id="add-checklist-item-btn">+ 항목 추가</button>
+          <div class="toolbar-row-right">
+            <input type="file" id="checklist-excel-input" accept=".xlsx,.xls,.csv" hidden>
+            <button class="export-btn" id="checklist-excel-upload-btn">⇧ 엑셀로 항목 추가</button>
+            <button class="icon-btn danger" id="checklist-clear-btn">전체 항목 삭제</button>
+          </div>
+        </div>
+
+        <div id="checklist-status-banner" class="empty-hint" hidden></div>
+
+        <div class="table-wrap" id="checklist-table-wrap">
+          <table class="report-table checklist-table" id="checklist-table">
+            <thead>
+              <tr>
+                <th class="th-checklist-category">구분</th>
+                <th class="th-checklist-no">번호</th>
+                <th class="th-checklist-item">항목</th>
+                <th class="th-checklist-content">내용</th>
+                <th class="th-checklist-note">비고</th>
+                <th class="th-checklist-done">완료</th>
+                <th class="th-checklist-assignee">담당자</th>
+                <th class="th-checklist-actions">관리</th>
+              </tr>
+            </thead>
+            <tbody id="checklist-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -512,6 +554,46 @@
       <div id="restaurant-form-error" class="modal-error"></div>
       <div class="modal-actions">
         <button type="button" class="btn-sm cancel" id="restaurant-modal-cancel">취소</button>
+        <button type="submit" class="btn-sm save">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== 운영체크리스트 항목 추가/편집 모달 ===================== -->
+<div id="checklist-item-modal-overlay" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <h2 id="checklist-item-modal-title">항목 추가</h2>
+    <form id="checklist-item-form">
+      <div class="modal-row">
+        <div class="modal-field">
+          <label for="ci-input-category">구분</label>
+          <input type="text" id="ci-input-category" placeholder="예: 진행 전" required>
+        </div>
+        <div class="modal-field">
+          <label for="ci-input-no">번호</label>
+          <input type="text" id="ci-input-no" placeholder="예: 1">
+        </div>
+      </div>
+      <div class="modal-field">
+        <label for="ci-input-item">항목</label>
+        <input type="text" id="ci-input-item" placeholder="예: 시설" required>
+      </div>
+      <div class="modal-field">
+        <label for="ci-input-content">내용</label>
+        <textarea id="ci-input-content" placeholder="체크리스트 내용을 입력하세요..." required></textarea>
+      </div>
+      <div class="modal-field">
+        <label for="ci-input-note">비고</label>
+        <input type="text" id="ci-input-note" placeholder="참고사항 (선택)">
+      </div>
+      <div class="modal-field">
+        <label for="ci-input-assignee">담당자</label>
+        <input type="text" id="ci-input-assignee" placeholder="담당자명 (선택, 나중에 표에서 바로 바꿀 수도 있습니다)">
+      </div>
+      <div id="checklist-item-form-error" class="modal-error"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-sm cancel" id="checklist-item-modal-cancel">취소</button>
         <button type="submit" class="btn-sm save">저장</button>
       </div>
     </form>
